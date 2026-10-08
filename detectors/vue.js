@@ -11,7 +11,7 @@
     logo: null,
     signals: {
       globals: ["Vue", "__VUE__"],
-      scriptUrl: [/vue(?:\.min|\.global|\.runtime)?\.js/i, /\/vue@\d/i],
+      scriptUrl: [/(?:^|[/_-])vue(?:\.min|\.global|\.runtime)?\.js/i, /\/vue@\d/i],
       styleUrl: [],
       meta: {},
       domAttr: ["[data-v-app]"],

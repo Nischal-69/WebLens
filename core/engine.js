@@ -120,7 +120,11 @@
     }
 
     // Emit if one decent signal or 2+ weak corroborating signals.
+    // Strict detectors (minSignals: 2) require corroboration — a lone
+    // weak trace (e.g. Astro meta alone, "_" global alone) never emits.
     if (score >= 30 || detectedBy.length >= 2) {
+      const min = rule.minSignals || 1;
+      if (detectedBy.length < min) return null;
       return {
         detector: rule,
         score: Math.min(99, score),

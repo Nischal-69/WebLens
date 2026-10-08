@@ -26,8 +26,15 @@
               return;
             }
             const mainGlobals = msg.mainGlobals || null;
-            const mainFlags = mainGlobals && typeof mainGlobals.hasNextData !== "undefined"
-              ? { hasNextData: !!mainGlobals.hasNextData }
+            const mainFlags = mainGlobals
+              ? {
+                  ...(typeof mainGlobals.hasNextData !== "undefined"
+                    ? { hasNextData: !!mainGlobals.hasNextData }
+                    : {}),
+                  ...(typeof mainGlobals.hasNuxtData !== "undefined"
+                    ? { hasNuxtData: !!mainGlobals.hasNuxtData }
+                    : {})
+                }
               : null;
             const signals = Signals.collect(mainGlobals);
             const hits = Engine.run(signals, Detectors, mainFlags);

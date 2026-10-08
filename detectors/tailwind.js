@@ -12,7 +12,7 @@
     signals: {
       globals: [],
       scriptUrl: [/cdn\.tailwindcss\.com/i, /tailwindcss/i],
-      styleUrl: [/tailwind/i],
+      styleUrl: [/tailwind(?:\.min)?\.css/i, /tailwindcss/i],
       meta: {},
       domAttr: [],
       html: [/cdn\.tailwindcss\.com/i, /tailwind\.config/i],

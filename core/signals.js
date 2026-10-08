@@ -70,14 +70,26 @@
   }
 
   // Quick isolated-world global presence check (MAIN probe supplements this).
+  // NOTE: "_" and "$" are weak alone — detectors must require corroboration.
   const KNOWN_GLOBALS = [
     "React",
     "__REACT_DEVTOOLS_GLOBAL_HOOK__",
     "Vue",
     "__VUE__",
+    "__NUXT__",
+    "Nuxt",
     "jQuery",
     "$",
     "angular",
+    "ng",
+    "gsap",
+    "TweenMax",
+    "TweenLite",
+    "lodash",
+    "_",
+    "THREE",
+    "__sveltekit",
+    "astro",
     "Shopify",
     "gtag",
     "ga",

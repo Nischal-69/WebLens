@@ -11,7 +11,7 @@
     logo: null,
     signals: {
       globals: ["React", "__REACT_DEVTOOLS_GLOBAL_HOOK__"],
-      scriptUrl: [/react(?:\.min|\.production\.min)?\.js/i, /\/react@\d/i, /react-dom/i],
+      scriptUrl: [/(?:^|[/_-])react(?:\.min|\.production\.min)?\.js/i, /\/react@\d/i, /(?:^|[/_-])react-dom/i],
       styleUrl: [],
       meta: {},
       domAttr: ["[data-reactroot]", "[data-reactid]"],
