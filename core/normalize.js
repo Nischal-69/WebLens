@@ -9,6 +9,17 @@
     return "low";
   }
 
+  function categoryFor(detector) {
+    try {
+      const api = (typeof window !== "undefined" ? window : globalThis).WebLensCategories;
+      if (api && typeof api.canonicalize === "function") {
+        return api.canonicalize(detector.category, detector.slug);
+      }
+    } catch {
+      /* fall through to raw label */
+    }
+    return detector.category || "Other";
+  }
   const api = {
     normalize(hits) {
       const bySlug = new Map();
@@ -22,7 +33,7 @@
         .map((h) => ({
           slug: h.detector.slug,
           name: h.detector.name,
-          category: h.detector.category || "Uncategorized",
+          category: categoryFor(h.detector),
           description: h.detector.description || "",
           confidence: confidenceFor(h.score),
           score: h.score,

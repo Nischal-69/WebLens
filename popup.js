@@ -144,14 +144,41 @@ const Results = {
     list.hidden = isScanning || items.length === 0;
 
     list.innerHTML = "";
-    for (const tech of items) list.appendChild(this.row(tech));
+    for (const grp of this.groupItems(items)) {
+      list.appendChild(this.groupHeader(grp));
+      for (const tech of grp.items) list.appendChild(this.row(tech));
+    }
 
     this.updateCount(items.length);
     this.updateNoMatch(items.length, query);
   },
 
+  groupItems(items) {
+    try {
+      const api = window.WebLensCategories;
+      if (api && typeof api.group === "function") return api.group(items);
+    } catch {
+      /* fall through to single group */
+    }
+    return items.length > 0 ? [{ name: "Technologies", count: items.length, items }] : [];
+  },
+
+  groupHeader(grp) {
+    const h = document.createElement("div");
+    h.className = "cat-header";
+    const name = document.createElement("span");
+    name.className = "cat-name";
+    name.textContent = grp.name;
+    const count = document.createElement("span");
+    count.className = "cat-count";
+    count.textContent = String(grp.count);
+    count.title = `${grp.count} detected`;
+    h.append(name, count);
+    return h;
+  },
+
   row(tech) {
-    const li = document.createElement("li");
+    const li = document.createElement("div");
     li.className = "tech";
 
     const mark = document.createElement("span");

@@ -257,9 +257,42 @@ body {
 
 /* ---------- Results ---------- */
 .results {
-  list-style: none;
   margin: 0;
   padding: 0;
+}
+
+.cat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 12px 5px;
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border);
+}
+
+.cat-name {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cat-count {
+  flex-shrink: 0;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+  line-height: 1.5;
 }
 
 .tech {
@@ -269,8 +302,6 @@ body {
   padding: 8px 12px;
   border-bottom: 1px solid var(--border);
 }
-
-.tech:last-child { border-bottom: none; }
 
 .tech-mark {
   display: inline-flex;

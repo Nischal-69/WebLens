@@ -74,6 +74,7 @@
         "detectors/php.js",
         "detectors/registry.js",
         "core/engine.js",
+        "core/categories.js",
         "core/wp-extras.js",
         "core/normalize.js",
         "content.js"

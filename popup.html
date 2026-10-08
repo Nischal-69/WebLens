@@ -88,8 +88,8 @@
         <p class="state-sub">Run a scan to see what powers this site.</p>
       </div>
 
-      <!-- Technology results -->
-      <ul id="resultsList" class="results" hidden></ul>
+      <!-- Technology results, grouped by category -->
+      <div id="resultsList" class="results" hidden></div>
 
       <!-- Search with no match -->
       <p id="noMatch" class="no-match" hidden>No matches for “<span id="noMatchQuery"></span>”.</p>
@@ -102,6 +102,7 @@
     </footer>
   </div>
 
+  <script src="core/categories.js"></script>
   <script src="popup.js" type="module"></script>
 </body>
 </html>
