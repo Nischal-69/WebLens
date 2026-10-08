@@ -119,6 +119,13 @@
       score += WEIGHTS.html;
       detectedBy.push("html");
     }
+    // Versioned in-page signatures (e.g. "<!-- nginx/1.24 -->") are far
+    // stronger than prose mentions — weight them as a script-grade signal.
+    // Reported as "html" in detectedBy.
+    if (anyRegex(signals.html || "", rule.signals.htmlStrong)) {
+      score += WEIGHTS.scriptUrl;
+      detectedBy.push("html");
+    }
 
     // Emit if one decent signal or 2+ weak corroborating signals.
     // Strict detectors (minSignals: 2) require corroboration — a lone
