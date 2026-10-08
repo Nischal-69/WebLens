@@ -71,7 +71,8 @@
       if (hints.metaKey) {
         const val = signals.meta[hints.metaKey] || signals.meta[hints.metaKey.toLowerCase()];
         if (val) {
-          const m = val.match(/(\d+\.\d+(?:\.\d+)?)/);
+          // Allow single-major ("Drupal 10") as well as dotted versions.
+          const m = val.match(/(\d+(?:\.\d+){0,2})/);
           if (m) return m[1];
         }
       }
