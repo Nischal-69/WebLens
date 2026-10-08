@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WebLens</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <main class="popup">
+    <header class="header">
+      <img src="icons/icon48.png" alt="WebLens logo" class="logo" width="48" height="48" />
+      <div class="title-wrap">
+        <h1 class="title">WebLens</h1>
+        <p class="tagline">See what powers the web.</p>
+      </div>
+    </header>
+
+    <section class="actions">
+      <button id="scanBtn" type="button" class="scan-btn">Scan Website</button>
+      <p id="statusText" class="status" role="status" aria-live="polite"></p>
+    </section>
+
+    <section class="results" aria-label="Scan results">
+      <!-- Detection engine will render results here in later batches. -->
+      <div id="resultsList" class="results-list"></div>
+    </section>
+
+    <footer class="footer">
+      <span>v0.1.0 &middot; Initial scaffold</span>
+    </footer>
+  </main>
+
+  <script src="popup.js" type="module"></script>
+</body>
+</html>
