@@ -3,7 +3,7 @@
   "name": "WebLens",
   "description": "See what powers the web.",
   "version": "0.1.0",
-  "minimum_chrome_version": "88",
+  "minimum_chrome_version": "111",
   "action": {
     "default_popup": "popup.html",
     "default_title": "WebLens — See what powers the web.",
@@ -20,7 +20,24 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content.js"],
+      "js": [
+        "core/signals.js",
+        "detectors/react.js",
+        "detectors/nextjs.js",
+        "detectors/vue.js",
+        "detectors/jquery.js",
+        "detectors/wordpress.js",
+        "detectors/shopify.js",
+        "detectors/tailwind.js",
+        "detectors/bootstrap.js",
+        "detectors/ga.js",
+        "detectors/gtm.js",
+        "detectors/cloudflare.js",
+        "detectors/registry.js",
+        "core/engine.js",
+        "core/normalize.js",
+        "content.js"
+      ],
       "run_at": "document_idle"
     }
   ],

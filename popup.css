@@ -116,6 +116,7 @@ body {
 
 .dot-scanning { background: var(--warning); }
 .dot-done { background: var(--success); }
+.dot-error { background: #b91c1c; }
 
 .status {
   font-size: 11px;
@@ -288,6 +289,54 @@ body {
 }
 
 .tech-meta { flex: 1; min-width: 0; }
+
+.tech-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.tech-link {
+  color: var(--text);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+}
+
+.tech-link:hover {
+  color: var(--accent-text);
+  border-bottom-color: var(--accent-text);
+}
+
+.conf {
+  flex-shrink: 0;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 1px 5px;
+  line-height: 1.5;
+}
+
+.conf-high {
+  color: var(--success);
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.conf-medium {
+  color: var(--warning);
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+
+.conf-low {
+  color: var(--muted);
+  background: var(--bg-subtle);
+}
 
 .tech-name {
   display: block;
