@@ -177,14 +177,43 @@ const Results = {
     return h;
   },
 
+  // Human-readable evidence sentence, e.g. "Detected from page globals and scripts."
+  evidenceSentence(detectedBy) {
+    const LABELS = {
+      global: "page globals",
+      "script-url": "scripts",
+      "stylesheet-url": "stylesheets",
+      meta: "meta tags",
+      dom: "DOM signals",
+      cookie: "cookies",
+      html: "page markup"
+    };
+    const parts = [...new Set(detectedBy || [])]
+      .map((k) => LABELS[k])
+      .filter(Boolean);
+    if (parts.length === 0) return "";
+    if (parts.length === 1) return `Detected from ${parts[0]}.`;
+    return `Detected from ${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}.`;
+  },
+
+  iconFor(category) {
+    try {
+      const api = window.WebLensIcons;
+      if (api && typeof api.svgFor === "function") return api.svgFor(category || "Other");
+    } catch {
+      /* fall through to empty */
+    }
+    return "";
+  },
+
   row(tech) {
     const li = document.createElement("div");
     li.className = "tech";
 
-    const mark = document.createElement("span");
-    mark.className = "tech-mark";
-    mark.textContent = this.initials(tech.name);
-    mark.setAttribute("aria-hidden", "true");
+    const icon = document.createElement("span");
+    icon.className = "tech-icon";
+    icon.setAttribute("aria-hidden", "true");
+    icon.innerHTML = this.iconFor(tech.category);
 
     const meta = document.createElement("div");
     meta.className = "tech-meta";
@@ -203,6 +232,16 @@ const Results = {
       link.className = "tech-link";
       link.title = tech.description || tech.website;
       name.appendChild(link);
+      const globe = document.createElement("span");
+      globe.className = "ext-link";
+      globe.setAttribute("aria-hidden", "true");
+      try {
+        const api = window.WebLensIcons;
+        if (api && typeof api.extLink === "function") globe.innerHTML = api.extLink();
+      } catch {
+        /* icon optional */
+      }
+      name.appendChild(globe);
     } else {
       name.textContent = tech.name;
       if (tech.description) name.title = tech.description;
@@ -215,13 +254,23 @@ const Results = {
 
     topRow.append(name, conf);
 
-    const cat = document.createElement("span");
-    cat.className = "tech-cat";
-    const by = (tech.detectedBy || []).join(" · ");
-    cat.textContent = by ? `${tech.category || "Uncategorized"} · ${by}` : tech.category || "Uncategorized";
-    cat.title = tech.description || cat.textContent;
+    meta.appendChild(topRow);
 
-    meta.append(topRow, cat);
+    if (tech.description) {
+      const desc = document.createElement("span");
+      desc.className = "tech-desc";
+      desc.textContent = tech.description;
+      desc.title = tech.description;
+      meta.appendChild(desc);
+    }
+
+    const evidence = this.evidenceSentence(tech.detectedBy);
+    if (evidence) {
+      const ev = document.createElement("span");
+      ev.className = "tech-evidence";
+      ev.textContent = evidence;
+      meta.appendChild(ev);
+    }
 
     // WordPress theme/plugin sub-block (passive extras only).
     if (tech.slug === "wordpress" && tech.details) {
@@ -255,7 +304,7 @@ const Results = {
       }
     }
 
-    li.append(mark, meta);
+    li.append(icon, meta);
 
     if (tech.version) {
       const ver = document.createElement("span");
@@ -265,11 +314,6 @@ const Results = {
       li.append(ver);
     }
     return li;
-  },
-
-  initials(name = "?") {
-    const parts = String(name).trim().split(/[\s\-_.]+/).filter(Boolean);
-    return parts.slice(0, 2).map((p) => p[0].toUpperCase()).join("") || "?";
   },
 
   updateCount(n) {
