@@ -7,29 +7,100 @@
   <link rel="stylesheet" href="popup.css" />
 </head>
 <body>
-  <main class="popup">
-    <header class="header">
-      <img src="icons/icon48.png" alt="WebLens logo" class="logo" width="48" height="48" />
-      <div class="title-wrap">
-        <h1 class="title">WebLens</h1>
-        <p class="tagline">See what powers the web.</p>
+  <div class="app">
+    <!-- Header: logo + title -->
+    <header class="topbar">
+      <div class="brand">
+        <span class="logo" aria-hidden="true">
+          <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <rect width="28" height="28" rx="6" fill="#1D4ED8"/>
+            <circle cx="12.5" cy="12.5" r="6" stroke="#FFFFFF" stroke-width="2.2"/>
+            <line x1="17" y1="17" x2="22" y2="22" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round"/>
+            <circle cx="10.5" cy="10.5" r="1.4" fill="#BFDBFE"/>
+          </svg>
+        </span>
+        <div class="brand-text">
+          <h1 class="title">WebLens</h1>
+          <p class="tagline">See what powers the web.</p>
+        </div>
       </div>
+      <span class="version" title="Extension version">v0.1.0</span>
     </header>
 
-    <section class="actions">
-      <button id="scanBtn" type="button" class="scan-btn">Scan Website</button>
-      <p id="statusText" class="status" role="status" aria-live="polite"></p>
+    <!-- Current website -->
+    <section class="sitebar" aria-label="Current website">
+      <svg class="site-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <circle cx="8" cy="8" r="6.2" stroke="#475569" stroke-width="1.4"/>
+        <path d="M1.8 8h12.4M8 1.8c-3.6 3.4-3.6 9 0 12.4M8 1.8c3.6 3.4 3.6 9 0 12.4" stroke="#475569" stroke-width="1.2"/>
+      </svg>
+      <span id="domainName" class="domain" title="Current site">…</span>
+      <span class="status-wrap">
+        <span id="scanStatusDot" class="dot dot-idle" aria-hidden="true"></span>
+        <span id="scanStatus" class="status" role="status" aria-live="polite">Idle</span>
+      </span>
     </section>
 
-    <section class="results" aria-label="Scan results">
-      <!-- Detection engine will render results here in later batches. -->
-      <div id="resultsList" class="results-list"></div>
+    <!-- Scan action -->
+    <section class="controls">
+      <button id="scanBtn" type="button" class="scan-btn">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.6"/>
+          <line x1="10.5" y1="10.5" x2="14" y2="14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+        </svg>
+        <span>Scan Website</span>
+      </button>
     </section>
+
+    <!-- Count + search toolbar -->
+    <section class="toolbar">
+      <div class="search">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <circle cx="7" cy="7" r="4.5" stroke="#64748B" stroke-width="1.5"/>
+          <line x1="10.6" y1="10.6" x2="14" y2="14" stroke="#64748B" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <input id="searchInput" type="search" placeholder="Filter technologies…" aria-label="Filter technologies" autocomplete="off" />
+      </div>
+      <span id="techCount" class="count" aria-live="polite">0 found</span>
+    </section>
+
+    <!-- Results area -->
+    <main class="content" aria-label="Scan results">
+      <!-- Loading state -->
+      <div id="loadingState" class="state loading" hidden>
+        <span class="spinner" aria-hidden="true"></span>
+        <p class="state-title">Scanning…</p>
+        <p class="state-sub">Inspecting scripts, meta tags and globals.</p>
+      </div>
+
+      <!-- Empty state -->
+      <div id="emptyState" class="state empty">
+        <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <rect x="4" y="4" width="24" height="17" rx="2" stroke="#94A3B8" stroke-width="1.6"/>
+          <line x1="4" y1="9.5" x2="28" y2="9.5" stroke="#94A3B8" stroke-width="1.4"/>
+          <circle cx="7" cy="7" r="1" fill="#94A3B8"/>
+          <circle cx="10" cy="7" r="1" fill="#94A3B8"/>
+          <circle cx="18" cy="17" r="4" stroke="#475569" stroke-width="1.6"/>
+          <line x1="21" y1="20" x2="25" y2="24" stroke="#475569" stroke-width="1.6" stroke-linecap="round"/>
+          <line x1="12" y1="25" x2="12" y2="28" stroke="#94A3B8" stroke-width="1.6" stroke-linecap="round"/>
+          <line x1="8" y1="28" x2="16" y2="28" stroke="#94A3B8" stroke-width="1.6" stroke-linecap="round"/>
+        </svg>
+        <p class="state-title">No technologies yet</p>
+        <p class="state-sub">Run a scan to see what powers this site.</p>
+      </div>
+
+      <!-- Technology results -->
+      <ul id="resultsList" class="results" hidden></ul>
+
+      <!-- Search with no match -->
+      <p id="noMatch" class="no-match" hidden>No matches for “<span id="noMatchQuery"></span>”.</p>
+    </main>
 
     <footer class="footer">
-      <span>v0.1.0 &middot; Initial scaffold</span>
+      <span>WebLens · dev build</span>
+      <span class="footer-dot" aria-hidden="true">·</span>
+      <span id="footerStatus">ready</span>
     </footer>
-  </main>
+  </div>
 
   <script src="popup.js" type="module"></script>
 </body>
