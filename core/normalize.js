@@ -29,7 +29,8 @@
           detectedBy: h.detectedBy || [],
           website: h.detector.website || null,
           logo: h.detector.logo || null,
-          version: h.version || null
+          version: h.version || null,
+          ...(h.details ? { details: h.details } : {})
         }))
         .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
     }

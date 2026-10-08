@@ -110,11 +110,21 @@ const Results = {
     if (!list || !empty || !loading) return;
 
     const query = Store.filter.trim().toLowerCase();
-    const items = Store.technologies.filter((t) =>
-      query
-        ? `${t.name} ${t.category || ""} ${t.description || ""}`.toLowerCase().includes(query)
-        : true
-    );
+    const items = Store.technologies.filter((t) => {
+      if (!query) return true;
+      const extras =
+        t.details != null
+          ? [
+              t.details.theme?.name || "",
+              ...(Array.isArray(t.details.plugins)
+                ? t.details.plugins.map((p) => p.name)
+                : [])
+            ].join(" ")
+          : "";
+      return `${t.name} ${t.category || ""} ${t.description || ""} ${extras}`
+        .toLowerCase()
+        .includes(query);
+    });
 
     const isScanning = Store.status === "scanning";
     loading.hidden = !isScanning;
@@ -185,6 +195,39 @@ const Results = {
     cat.title = tech.description || cat.textContent;
 
     meta.append(topRow, cat);
+
+    // WordPress theme/plugin sub-block (passive extras only).
+    if (tech.slug === "wordpress" && tech.details) {
+      const { theme, plugins } = tech.details;
+      if (theme?.name) {
+        const tRow = document.createElement("span");
+        tRow.className = "wp-sub";
+        const tLabel = document.createElement("span");
+        tLabel.className = "wp-label";
+        tLabel.textContent = "Theme: ";
+        const tName = document.createElement("span");
+        tName.className = "wp-val";
+        tName.textContent = theme.name;
+        tName.title = `Theme slug: ${theme.slug} (${theme.evidence} ref${theme.evidence === 1 ? "" : "s"})`;
+        tRow.append(tLabel, tName);
+        meta.appendChild(tRow);
+      }
+      if (Array.isArray(plugins) && plugins.length > 0) {
+        const pRow = document.createElement("span");
+        pRow.className = "wp-sub";
+        const pLabel = document.createElement("span");
+        pLabel.className = "wp-label";
+        pLabel.textContent = "Plugins: ";
+        const pVals = document.createElement("span");
+        pVals.className = "wp-val";
+        const names = plugins.map((p) => p.name);
+        pVals.textContent = names.join(", ");
+        pVals.title = plugins.map((p) => `${p.name} (${p.evidence})`).join(", ");
+        pRow.append(pLabel, pVals);
+        meta.appendChild(pRow);
+      }
+    }
+
     li.append(mark, meta);
 
     if (tech.version) {

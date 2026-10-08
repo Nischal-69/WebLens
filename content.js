@@ -9,7 +9,8 @@
       Signals: window.WebLensSignals,
       Detectors: window.WebLensDetectors || [],
       Engine: window.WebLensEngine,
-      Normalize: window.WebLensNormalize
+      Normalize: window.WebLensNormalize,
+      WpExtras: window.WebLensWpExtras || null
     };
   }
 
@@ -20,7 +21,7 @@
         if (msg?.type !== "WEBLENS_SCAN") return false;
         (async () => {
           try {
-            const { Signals, Detectors, Engine, Normalize } = getApi();
+            const { Signals, Detectors, Engine, Normalize, WpExtras } = getApi();
             if (!Signals || !Engine || !Normalize) {
               sendResponse({ ok: false, error: "engine-not-loaded" });
               return;
@@ -38,6 +39,18 @@
               : null;
             const signals = Signals.collect(mainGlobals);
             const hits = Engine.run(signals, Detectors, mainFlags);
+            // Passive WP enrichment: only when WordPress itself was detected.
+            if (WpExtras && hits.some((h) => h?.detector?.slug === "wordpress")) {
+              try {
+                const extras = WpExtras.extract(signals);
+                if (extras) {
+                  const wpHit = hits.find((h) => h?.detector?.slug === "wordpress");
+                  if (wpHit) wpHit.details = extras;
+                }
+              } catch {
+                /* extras must never break the scan */
+              }
+            }
             const technologies = Normalize.normalize(hits);
             sendResponse({ ok: true, url: location.href, technologies });
           } catch (err) {

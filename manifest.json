@@ -50,6 +50,7 @@
         "detectors/cloudflare.js",
         "detectors/registry.js",
         "core/engine.js",
+        "core/wp-extras.js",
         "core/normalize.js",
         "content.js"
       ],
