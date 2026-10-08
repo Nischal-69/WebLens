@@ -36,6 +36,16 @@
     "ga",
     "google_tag_manager",
     "dataLayer",
+    "clarity",
+    "hj",
+    "Matomo",
+    "_paq",
+    "fbq",
+    "hubspot",
+    "_hsq",
+    "Intercom",
+    "$crisp",
+    "CRISP_WEBSITE_ID",
     "bootstrap"
   ];
   const present = [];

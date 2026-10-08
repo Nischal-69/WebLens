@@ -15,7 +15,7 @@
       styleUrl: [],
       meta: {},
       domAttr: [],
-      html: [/googletagmanager\.com\/gtag\/js/i, /google-analytics\.com\/analytics\.js/i],
+      html: [/googletagmanager\.com\/gtag\/js/i, /google-analytics\.com\/analytics\.js/i, /G-[A-Z0-9]{4,}/, /UA-\d{4,}/],
       cookies: [/^_ga/i, /^_gid/i]
     },
     versionHints: { scriptRegex: null, metaKey: null }
