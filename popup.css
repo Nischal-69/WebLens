@@ -1091,3 +1091,21 @@ label.setting-row { cursor: pointer; }
   font-size: 11px;
   color: var(--faint);
 }
+
+.privacy-list {
+  margin: 6px 0 0;
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 11.5px;
+  color: var(--muted);
+  text-align: left;
+}
+
+.privacy-note {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--faint);
+  line-height: 1.4;
+}
