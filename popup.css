@@ -26,7 +26,7 @@
 :root[data-theme="dark"] {
   --bg: #0f172a;
   --bg-subtle: #1e293b;
-  --border: #334155;
+  --border: #3a4f69;
   --border-strong: #475569;
   --text: #f1f5f9;
   --muted: #cbd5e1;
@@ -85,6 +85,7 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   overflow: hidden;
+  color: var(--muted);
 }
 
 .site-favicon img {
@@ -199,6 +200,19 @@ body {
   cursor: default;
 }
 
+/* Dark theme: white text on the light-blue accent fails contrast (~2:1),
+   so primary buttons use near-black text instead (~7:1). Hue unchanged. */
+:root[data-theme="dark"] .scan-btn,
+:root[data-theme="dark"] .site-btn {
+  color: #0b1a33;
+}
+
+:root[data-theme="dark"] .scan-btn:hover,
+:root[data-theme="dark"] .site-btn:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
 .scan-btn:focus-visible,
 .filter-btn:focus-visible,
 .link-btn:focus-visible,
@@ -226,6 +240,7 @@ body {
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-md);
   min-width: 0;
+  color: var(--faint);
 }
 
 .search input {
