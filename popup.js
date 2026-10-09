@@ -19,6 +19,7 @@ const Store = {
   status: "idle", // idle | scanning | done | error
   technologies: [],
   filter: "",
+  activeCategory: "All", // All | Frameworks | CMS | Analytics | WordPress | Fonts | Infrastructure | Other
   notice: "" // e.g. "Cannot scan this page" / error text
 };
 
@@ -33,11 +34,14 @@ const Elements = {
       "scanStatusDot",
       "techCount",
       "searchInput",
+      "categoryFilters",
       "loadingState",
       "emptyState",
       "resultsList",
       "noMatch",
       "noMatchQuery",
+      "noMatchFilter",
+      "clearFiltersBtn",
       "footerStatus"
     ];
     for (const id of ids) this.els[id] = document.getElementById(id);
@@ -101,6 +105,77 @@ const Status = {
   }
 };
 
+// ---------- CategoryFilters ----------
+// Simplified UI taxonomy (8 pills) mapped onto canonical categories.
+// Instant client-side filtering only — never triggers a rescan.
+const CategoryFilters = {
+  FILTER_MAP: {
+    All: null,
+    Frameworks: ["Frameworks"],
+    CMS: ["CMS"],
+    Analytics: ["Analytics"],
+    WordPress: ["WordPress"],
+    Fonts: ["Fonts"],
+    Infrastructure: ["CDN", "Hosting", "Web Server", "Security"]
+    // Other is handled as catch-all negation in matches().
+  },
+
+  isActive() {
+    return Store.activeCategory && Store.activeCategory !== "All";
+  },
+
+  matches(tech) {
+    const active = Store.activeCategory || "All";
+    if (active === "All") return true;
+    const category = tech.category || "Other";
+    if (active === "Other") {
+      // Catch-all: anything not covered by the 6 explicit buckets.
+      const covered = new Set();
+      for (const [key, cats] of Object.entries(this.FILTER_MAP)) {
+        if (key === "All") continue;
+        for (const c of cats || []) covered.add(c);
+      }
+      return !covered.has(category);
+    }
+    const allowed = this.FILTER_MAP[active];
+    if (!allowed) return true;
+    return allowed.includes(category);
+  },
+
+  init() {
+    const bar = Elements.get("categoryFilters");
+    if (!bar) return;
+    bar.addEventListener("click", (e) => {
+      const btn = e.target?.closest?.('[data-filter]');
+      if (!btn || !bar.contains(btn)) return;
+      this.set(btn.dataset.filter);
+    });
+  },
+
+  set(next) {
+    if (!next) return;
+    Store.activeCategory = next;
+    this.syncUI();
+    Results.render();
+  },
+
+  syncUI() {
+    const bar = Elements.get("categoryFilters");
+    if (!bar) return;
+    const buttons = bar.querySelectorAll("[data-filter]");
+    for (const btn of buttons) {
+      const on = btn.dataset.filter === Store.activeCategory;
+      btn.classList.toggle("is-active", on);
+      btn.setAttribute("aria-pressed", on ? "true" : "false");
+    }
+  },
+
+  reset() {
+    Store.activeCategory = "All";
+    this.syncUI();
+  }
+};
+
 // ---------- Results ----------
 const Results = {
   render() {
@@ -110,7 +185,9 @@ const Results = {
     if (!list || !empty || !loading) return;
 
     const query = Store.filter.trim().toLowerCase();
+    const categoryActive = CategoryFilters.isActive();
     const items = Store.technologies.filter((t) => {
+      if (!CategoryFilters.matches(t)) return false;
       if (!query) return true;
       const extras =
         t.details != null
@@ -140,7 +217,7 @@ const Results = {
       if (emptySub) emptySub.textContent = "Run a scan to see what powers this site.";
     }
 
-    empty.hidden = isScanning || items.length > 0 || query.length > 0;
+    empty.hidden = isScanning || items.length > 0 || query.length > 0 || categoryActive;
     list.hidden = isScanning || items.length === 0;
 
     list.innerHTML = "";
@@ -324,10 +401,23 @@ const Results = {
   updateNoMatch(visibleCount, query) {
     const noMatch = Elements.get("noMatch");
     const q = Elements.get("noMatchQuery");
+    const f = Elements.get("noMatchFilter");
     if (!noMatch) return;
-    const show = query.length > 0 && visibleCount === 0 && Store.technologies.length > 0;
+    const hasQuery = query.length > 0;
+    const hasCategory = CategoryFilters.isActive();
+    const show =
+      visibleCount === 0 &&
+      Store.technologies.length > 0 &&
+      (hasQuery || hasCategory) &&
+      Store.status !== "scanning";
     noMatch.hidden = !show;
-    if (q) q.textContent = Store.filter.trim();
+    if (!show) return;
+    if (q) q.textContent = hasQuery ? Store.filter.trim() : "all technologies";
+    if (f) {
+      if (hasQuery && hasCategory) f.textContent = ` in ${Store.activeCategory}`;
+      else if (hasCategory) f.textContent = ` in ${Store.activeCategory}`;
+      else f.textContent = "";
+    }
   }
 };
 
@@ -340,6 +430,15 @@ const Search = {
       Store.filter = input.value;
       Results.render();
     });
+    const clearBtn = Elements.get("clearFiltersBtn");
+    if (clearBtn) {
+      clearBtn.addEventListener("click", () => {
+        this.clear();
+        CategoryFilters.reset();
+        Results.render();
+        if (input) input.focus();
+      });
+    }
   },
   clear() {
     const input = Elements.get("searchInput");
@@ -390,6 +489,7 @@ const Actions = {
   async onScanRequested() {
     if (Store.status === "scanning") return;
     Search.clear();
+    CategoryFilters.reset();
     Store.notice = "";
     Store.technologies = [];
     Status.set("scanning");
@@ -415,7 +515,9 @@ document.addEventListener("DOMContentLoaded", () => {
   Elements.cache();
   Status.set("idle");
   Results.render();
+  CategoryFilters.syncUI();
   Search.init();
+  CategoryFilters.init();
   Domain.resolve();
 
   const btn = Elements.get("scanBtn");
