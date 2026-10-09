@@ -169,6 +169,50 @@
         </div>
       </div>
     </section>
+
+    <!-- Settings (local only, stored in chrome.storage.local) -->
+    <section id="settingsSection" class="settings" aria-label="Settings">
+      <button id="settingsToggle" type="button" class="history-toggle" aria-expanded="false" aria-controls="settingsBody">
+        <span>Settings</span>
+      </button>
+      <div id="settingsBody" class="settings-body" hidden>
+        <label class="setting-row" for="themeSelect">
+          <span class="setting-label">Theme</span>
+          <select id="themeSelect" class="setting-select" aria-label="Theme">
+            <option value="system">System</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </select>
+        </label>
+        <div class="setting-row">
+          <span class="setting-label" id="autoScanLabel">Automatically scan on popup open</span>
+          <button id="autoScanToggle" type="button" class="switch" role="switch" aria-checked="false" aria-labelledby="autoScanLabel">
+            <span class="switch-state">Off</span>
+          </button>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label" id="confToggleLabel">Show confidence levels</span>
+          <button id="confToggle" type="button" class="switch" role="switch" aria-checked="true" aria-labelledby="confToggleLabel">
+            <span class="switch-state">On</span>
+          </button>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label" id="histToggleLabel">Store scan history</span>
+          <button id="histToggle" type="button" class="switch" role="switch" aria-checked="true" aria-labelledby="histToggleLabel">
+            <span class="switch-state">On</span>
+          </button>
+        </div>
+        <div class="setting-row">
+          <button id="settingsClearHistoryBtn" type="button" class="ghost-btn danger">Clear history</button>
+          <span id="settingsStatus" class="export-status" role="status" aria-live="polite"></span>
+        </div>
+        <div class="about">
+          <strong class="about-name">WebLens</strong>
+          <span class="about-tag">See what powers the web.</span>
+          <span id="aboutVersion" class="about-ver">Version …</span>
+        </div>
+      </div>
+    </section>
   </div>
 
   <script src="core/categories.js"></script>

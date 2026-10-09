@@ -13,6 +13,7 @@
  *   Search   -> client-side filter
  *   Export   -> local-only copy results + JSON download (no network)
  *   History  -> local scan history in chrome.storage.local (never uploaded)
+ *   Settings -> local settings: theme, auto-scan, confidence, history (never uploaded)
  *   Scanner  -> MAIN probe + content-script messaging (no backend)
  *   Actions  -> Scan button handler
  */
@@ -77,7 +78,17 @@ const Elements = {
       "historyList",
       "historyEmpty",
       "clearHistoryBtn",
-      "historyStatus"
+      "historyStatus",
+      "settingsSection",
+      "settingsToggle",
+      "settingsBody",
+      "themeSelect",
+      "autoScanToggle",
+      "confToggle",
+      "histToggle",
+      "settingsClearHistoryBtn",
+      "settingsStatus",
+      "aboutVersion"
     ];
     for (const id of ids) this.els[id] = document.getElementById(id);
   },
@@ -970,6 +981,192 @@ const Export = {
   }
 };
 
+// ---------- Settings ----------
+// Simple local settings. Stored ONLY in chrome.storage.local under a single
+// key — never sent anywhere. Defaults: system theme, no auto-scan,
+// confidence shown, history stored.
+const Settings = {
+  KEY: "weblens.settings.v1",
+  DEFAULTS: {
+    theme: "system", // system | light | dark
+    autoScan: false,
+    showConfidence: true,
+    storeHistory: true
+  },
+  values: null, // merged settings once loaded
+  loaded: false,
+  _expanded: false,
+  _media: null,
+
+  get(name) {
+    if (this.values && name in this.values) return this.values[name];
+    return this.DEFAULTS[name];
+  },
+
+  available() {
+    try {
+      return !!(chrome?.storage?.local?.get && chrome?.storage?.local?.set);
+    } catch {
+      return false;
+    }
+  },
+
+  sanitize(raw) {
+    const out = { ...this.DEFAULTS };
+    if (!raw || typeof raw !== "object") return out;
+    if (["system", "light", "dark"].includes(raw.theme)) out.theme = raw.theme;
+    for (const key of ["autoScan", "showConfidence", "storeHistory"]) {
+      if (typeof raw[key] === "boolean") out[key] = raw[key];
+    }
+    return out;
+  },
+
+  async load() {
+    if (this.available()) {
+      try {
+        const res = await chrome.storage.local.get(this.KEY);
+        this.values = this.sanitize(res?.[this.KEY]);
+      } catch (err) {
+        console.warn("[WebLens] Settings load failed, using defaults:", err);
+        this.values = { ...this.DEFAULTS };
+      }
+    } else {
+      this.values = { ...this.DEFAULTS };
+    }
+    this.loaded = true;
+    this.applyAll();
+    this.syncUI();
+    return this.values;
+  },
+
+  async save() {
+    if (!this.available()) return;
+    try {
+      await chrome.storage.local.set({ [this.KEY]: this.values });
+    } catch (err) {
+      console.warn("[WebLens] Settings save failed:", err);
+    }
+  },
+
+  async set(name, value) {
+    this.values = { ...(this.values || this.DEFAULTS), [name]: value };
+    this.applyAll();
+    this.syncUI();
+    await this.save();
+  },
+
+  applyAll() {
+    this.applyTheme();
+    this.applyConfidence();
+  },
+
+  applyTheme() {
+    const root = document.documentElement;
+    const mode = this.get("theme");
+    // Follow the OS while "system" is selected.
+    try {
+      if (this._media) {
+        this._media.onchange = null;
+        this._media = null;
+      }
+      if (mode === "system" && window.matchMedia) {
+        this._media = window.matchMedia("(prefers-color-scheme: dark)");
+        this._media.onchange = () => this.applyTheme();
+        root.dataset.theme = this._media.matches ? "dark" : "light";
+        return;
+      }
+    } catch {
+      /* matchMedia optional */
+    }
+    if (mode === "dark") root.dataset.theme = "dark";
+    else root.removeAttribute("data-theme");
+  },
+
+  applyConfidence() {
+    try {
+      document.body.classList.toggle("hide-confidence", !this.get("showConfidence"));
+    } catch {
+      /* body optional */
+    }
+  },
+
+  setSwitch(btn, on) {
+    if (!btn) return;
+    btn.setAttribute("aria-checked", on ? "true" : "false");
+    const state = btn.querySelector(".switch-state");
+    if (state) state.textContent = on ? "On" : "Off";
+  },
+
+  syncUI() {
+    const theme = Elements.get("themeSelect");
+    if (theme) theme.value = this.get("theme");
+    this.setSwitch(Elements.get("autoScanToggle"), this.get("autoScan"));
+    this.setSwitch(Elements.get("confToggle"), this.get("showConfidence"));
+    this.setSwitch(Elements.get("histToggle"), this.get("storeHistory"));
+  },
+
+  setStatus(text, ok) {
+    const el = Elements.get("settingsStatus");
+    if (!el) return;
+    el.textContent = text;
+    el.classList.toggle("is-ok", !!ok);
+    setTimeout(() => {
+      const cur = Elements.get("settingsStatus");
+      if (cur && cur.textContent === text) {
+        cur.textContent = "";
+        cur.classList.remove("is-ok");
+      }
+    }, 2500);
+  },
+
+  fillAbout() {
+    const el = Elements.get("aboutVersion");
+    if (!el) return;
+    try {
+      const version = chrome?.runtime?.getManifest?.().version;
+      el.textContent = version ? `Version ${version}` : "Version unknown";
+    } catch {
+      el.textContent = "Version unknown";
+    }
+  },
+
+  init() {
+    const toggle = Elements.get("settingsToggle");
+    if (toggle) {
+      toggle.addEventListener("click", () => {
+        this._expanded = !this._expanded;
+        const body = Elements.get("settingsBody");
+        if (body) body.hidden = !this._expanded;
+        toggle.setAttribute("aria-expanded", this._expanded ? "true" : "false");
+      });
+    }
+    const theme = Elements.get("themeSelect");
+    if (theme) {
+      theme.addEventListener("change", () => this.set("theme", theme.value));
+    }
+    const wire = (id, name) => {
+      const btn = Elements.get(id);
+      if (btn) btn.addEventListener("click", () => this.set(name, !this.get(name)));
+    };
+    wire("autoScanToggle", "autoScan");
+    wire("confToggle", "showConfidence");
+    wire("histToggle", "storeHistory");
+    const clear = Elements.get("settingsClearHistoryBtn");
+    if (clear) {
+      clear.addEventListener("click", async () => {
+        try {
+          await History.clear();
+          this.setStatus("History cleared", true);
+        } catch (err) {
+          console.warn("[WebLens] Clear from settings failed:", err);
+          this.setStatus("Clear failed", false);
+        }
+      });
+    }
+    this.fillAbout();
+  }
+};
+
 // ---------- History ----------
 // Local scan history. Stored ONLY in chrome.storage.local under a single
 // key — never sent anywhere (no fetch/XHR in this file). Newest first,
@@ -1056,8 +1253,14 @@ const History = {
   },
 
   // Fire-and-forget from the scan success path — never blocks rendering.
+  // Honors the "Store scan history" setting; existing entries are kept.
   save(entry) {
     if (!this.available()) return;
+    try {
+      if (typeof Settings !== "undefined" && Settings.loaded && !Settings.get("storeHistory")) return;
+    } catch {
+      /* settings optional — default to saving */
+    }
     try {
       this._entries = [entry, ...this._entries].slice(0, this.MAX);
       this.render();
@@ -1344,16 +1547,55 @@ const Actions = {
 // ---------- Boot ----------
 document.addEventListener("DOMContentLoaded", () => {
   Elements.cache();
-  Status.set("idle");
-  Results.render();
-  CategoryFilters.syncUI();
-  Search.init();
-  CategoryFilters.init();
-  Detail.init();
-  Export.init();
-  History.init();
-  Domain.resolve();
-
-  const btn = Elements.get("scanBtn");
-  if (btn) btn.addEventListener("click", () => Actions.onScanRequested());
+  Boot.boot();
 });
+
+const Boot = {
+  _autoScanned: false,
+
+  async boot() {
+    // Settings first so theme + confidence apply before first paint.
+    try {
+      await Settings.load();
+    } catch (err) {
+      console.warn("[WebLens] Settings init failed:", err);
+    }
+    Status.set("idle");
+    Results.render();
+    CategoryFilters.syncUI();
+    Search.init();
+    CategoryFilters.init();
+    Detail.init();
+    Export.init();
+    Settings.init();
+    let tab = null;
+    try {
+      tab = await Domain.resolve();
+    } catch (err) {
+      console.warn("[WebLens] Site resolve failed:", err);
+    }
+    try {
+      await History.init();
+    } catch (err) {
+      console.warn("[WebLens] History init failed:", err);
+    }
+
+    const btn = Elements.get("scanBtn");
+    if (btn) btn.addEventListener("click", () => Actions.onScanRequested());
+
+    // Optional single auto-scan on popup open (off by default).
+    try {
+      if (
+        !this._autoScanned &&
+        Settings.get("autoScan") &&
+        Store.status === "idle" &&
+        Scanner.isScannable(tab?.url)
+      ) {
+        this._autoScanned = true;
+        Actions.onScanRequested();
+      }
+    } catch (err) {
+      console.warn("[WebLens] Auto-scan failed:", err);
+    }
+  }
+};
