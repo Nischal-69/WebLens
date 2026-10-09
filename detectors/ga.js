@@ -9,13 +9,19 @@
     description: "Web analytics for traffic and behaviour measurement.",
     website: "https://analytics.google.com",
     logo: null,
+    // NOTE: the shared "gtag" global is intentionally NOT listed — bare
+    // gtag also fires Google Ads, so it must never attribute Analytics
+    // alone. GA emits only with product-specific corroboration (G-/UA- ID,
+    // _ga cookies, or analytics tag URLs). Reliability over coverage.
+    minSignals: 2,
     signals: {
-      globals: ["gtag", "ga"],
+      globals: ["ga"],
       scriptUrl: [/googletagmanager\.com\/gtag\/js/i, /google-analytics\.com\/(?:ga|analytics)\.js/i],
       styleUrl: [],
       meta: {},
       domAttr: [],
-      html: [/googletagmanager\.com\/gtag\/js/i, /google-analytics\.com\/analytics\.js/i, /G-[A-Z0-9]{4,}/, /UA-\d{4,}/],
+      html: [/googletagmanager\.com\/gtag\/js/i, /google-analytics\.com\/analytics\.js/i],
+      htmlStrong: [/G-[A-Z0-9]{4,}/, /UA-\d{4,}/],
       cookies: [/^_ga/i, /^_gid/i]
     },
     versionHints: { scriptRegex: null, metaKey: null }

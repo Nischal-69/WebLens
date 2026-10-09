@@ -2,6 +2,16 @@
  * WebLens — core/engine.js
  * Runs detector registry against collected signals.
  * Multi-signal scoring: each matched signal type adds weight once.
+ *
+ * Channel policy (accuracy first):
+ *   - Every matched signal TYPE is one evidence channel, except prose
+ *     `html` matches, which add score but are NEVER channels (article
+ *     text mentioning "nginx" must not corroborate by itself).
+ *   - `flags` (MAIN-world probe) is its own channel, distinct from `dom`.
+ *   - A single channel emits only when it is STRONG (global, script-url,
+ *     meta, versioned htmlStrong). Weaker single channels (stylesheet-url,
+ *     dom, flag, cookie) always need corroboration.
+ *   - `minSignals` counts distinct channels, never raw matches.
  */
 (function () {
   const WEIGHTS = {
@@ -14,6 +24,12 @@
     cookie: 20,
     html: 10
   };
+
+  // Channels strong enough to emit on their own (single-channel hit).
+  // Everything else (stylesheet-url, dom, flag, cookie) needs a second
+  // corroborating channel. Prose `html` is intentionally absent: it only
+  // adds score, it is never evidence by itself.
+  const STRONG_CHANNELS = ["global", "script-url", "meta", "html"];
 
   function anyRegex(haystacks, patterns) {
     if (!patterns || !patterns.length) return false;
@@ -84,67 +100,91 @@
 
   function scoreDetector(rule, signals, mainFlags) {
     let score = 0;
-    const detectedBy = [];
+    // Internal evidence channels (distinct types only). Display labels are
+    // derived below; gating always uses these deduped channels.
+    const channels = [];
 
     if (matchGlobals(rule, signals.globals || [])) {
       score += WEIGHTS.global;
-      detectedBy.push("global");
+      channels.push("global");
     }
     if (anyRegex(signals.scriptUrls || [], rule.signals.scriptUrl)) {
       score += WEIGHTS.scriptUrl;
-      detectedBy.push("script-url");
+      channels.push("script-url");
     }
     if (anyRegex(signals.styleUrls || [], rule.signals.styleUrl)) {
       score += WEIGHTS.styleUrl;
-      detectedBy.push("stylesheet-url");
+      channels.push("stylesheet-url");
     }
     if (matchMeta(rule, signals.meta || {})) {
       score += WEIGHTS.meta;
-      detectedBy.push("meta");
+      channels.push("meta");
     }
     if (matchDom(rule, signals.hasSelector)) {
       score += WEIGHTS.domAttr;
-      detectedBy.push("dom");
+      channels.push("dom");
     }
     if (matchFlags(rule, mainFlags)) {
       score += WEIGHTS.flags;
-      detectedBy.push("dom");
+      channels.push("flag");
     }
     const cookieNames = signals.cookieNames || [];
     if (anyRegex(cookieNames, rule.signals.cookies)) {
       score += WEIGHTS.cookie;
-      detectedBy.push("cookie");
+      channels.push("cookie");
     }
+    // Prose HTML mentions add score but are NOT a channel — a blog post
+    // about a technology must never corroborate its own detection.
     if (anyRegex(signals.html || "", rule.signals.html)) {
       score += WEIGHTS.html;
-      detectedBy.push("html");
     }
     // Versioned in-page signatures (e.g. "<!-- nginx/1.24 -->") are far
-    // stronger than prose mentions — weight them as a script-grade signal.
-    // Reported as "html" in detectedBy.
+    // stronger than prose mentions — weight them as a script-grade signal
+    // and count them as an "html" channel. Reported as "html" in
+    // detectedBy (same display label as before).
     if (anyRegex(signals.html || "", rule.signals.htmlStrong)) {
       score += WEIGHTS.scriptUrl;
-      detectedBy.push("html");
+      channels.push("html");
     }
 
-    // Emit if one decent signal or 2+ weak corroborating signals.
+    const distinct = [...new Set(channels)];
+    if (distinct.length === 0) return null;
+
     // Strict detectors (minSignals: 2) require corroboration — a lone
-    // weak trace (e.g. Astro meta alone, "_" global alone) never emits.
-    if (score >= 30 || detectedBy.length >= 2) {
-      const min = rule.minSignals || 1;
-      if (detectedBy.length < min) return null;
+    // trace (e.g. Astro meta alone, "_" global alone) never emits.
+    const min = rule.minSignals || 1;
+    if (distinct.length < min) return null;
+
+    // Emit if one STRONG signal or 2+ corroborating channels.
+    // (Two channels always score >= 30 given current weights.)
+    if (distinct.length >= 2) {
       return {
         detector: rule,
         score: Math.min(99, score),
-        detectedBy: [...new Set(detectedBy)],
+        detectedBy: displayLabels(distinct),
+        version: extractVersion(rule, signals)
+      };
+    }
+    if (score >= 30 && STRONG_CHANNELS.includes(distinct[0])) {
+      return {
+        detector: rule,
+        score: Math.min(99, score),
+        detectedBy: displayLabels(distinct),
         version: extractVersion(rule, signals)
       };
     }
     return null;
   }
 
+  // Internal channels -> user-facing detectedBy labels. Kept stable so the
+  // popup evidence sentence ("Detected from …") never changes shape.
+  function displayLabels(distinct) {
+    return [...new Set(distinct.map((c) => (c === "flag" ? "dom" : c)))];
+  }
+
   const api = {
     WEIGHTS,
+    STRONG_CHANNELS,
     run(signals, detectors, mainFlags) {
       const list = Array.isArray(detectors) ? detectors : [];
       const hits = [];

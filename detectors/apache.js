@@ -16,7 +16,9 @@
       meta: { generator: [/apache/i] },
       domAttr: [],
       html: [/apache/i],
-      htmlStrong: [/<!--[\s\S]{0,200}?apache\/\d+\.\d+[\s\S]{0,200}?-->/i, /powered by apache(\/\d+\.\d+)?/i],
+      // NOTE: the "powered by" variant requires a version — bare prose
+      // ("powered by Apache" in an article) must never be strong evidence.
+      htmlStrong: [/<!--[\s\S]{0,200}?apache\/\d+\.\d+[\s\S]{0,200}?-->/i, /powered by apache\/\d+\.\d+/i],
       cookies: []
     },
     versionHints: { scriptRegex: null, metaKey: null }
