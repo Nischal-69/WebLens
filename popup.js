@@ -9,6 +9,7 @@
  *   Status   -> idle | scanning | done | error (scan button + subtitle)
  *   Results  -> render structured technologies [{name,category,description,
  *               confidence,score,detectedBy,website,logo,version}]
+ *   Detail   -> in-popup technology detail view (open / close / fill)
  *   Search   -> client-side filter
  *   Scanner  -> MAIN probe + content-script messaging (no backend)
  *   Actions  -> Scan button handler
@@ -20,6 +21,7 @@ const Store = {
   technologies: [],
   filter: "",
   activeCategory: "All", // All | Frameworks | CMS | Analytics | WordPress | Fonts | Infrastructure | Other
+  selectedSlug: null, // slug of technology shown in the detail view, or null
   notice: "" // e.g. "Cannot scan this page" / error text
 };
 
@@ -44,7 +46,20 @@ const Elements = {
       "noMatch",
       "noMatchQuery",
       "noMatchFilter",
-      "clearFiltersBtn"
+      "clearFiltersBtn",
+      "detailView",
+      "backBtn",
+      "detailIcon",
+      "detailName",
+      "detailConf",
+      "detailVer",
+      "detailCategory",
+      "detailDescWrap",
+      "detailDesc",
+      "detailReason",
+      "detailWpWrap",
+      "detailWp",
+      "detailWebsite"
     ];
     for (const id of ids) this.els[id] = document.getElementById(id);
   },
@@ -261,6 +276,169 @@ const CategoryFilters = {
   }
 };
 
+// ---------- Detail ----------
+// In-popup technology detail view. Pure client-side overlay of the list:
+// open(slug) fills the panel from Store.technologies, close() restores
+// the filtered list with scroll + focus preserved. Never rescans.
+const Detail = {
+  _returnFocus: null,
+  _returnScroll: 0,
+
+  isOpen() {
+    return Store.selectedSlug !== null;
+  },
+
+  find(slug) {
+    return (Store.technologies || []).find((t) => t.slug === slug) || null;
+  },
+
+  init() {
+    const back = Elements.get("backBtn");
+    if (back) back.addEventListener("click", () => this.close());
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && this.isOpen()) {
+        e.preventDefault();
+        this.close();
+      }
+    });
+  },
+
+  open(slug) {
+    const tech = this.find(slug);
+    if (!tech) return;
+    const view = Elements.get("detailView");
+    if (!view) return;
+    // Remember where to return: focused row + scroll position.
+    this._returnFocus = document.activeElement;
+    const scroller = view.closest(".content");
+    this._returnScroll = scroller ? scroller.scrollTop : 0;
+    Store.selectedSlug = slug;
+    this.fill(tech);
+    Results.render();
+    const back = Elements.get("backBtn");
+    if (back) back.focus();
+  },
+
+  closeSilent() {
+    Store.selectedSlug = null;
+    this._returnFocus = null;
+  },
+
+  close() {
+    const view = Elements.get("detailView");
+    const returnFocus = this._returnFocus;
+    const returnScroll = this._returnScroll || 0;
+    Store.selectedSlug = null;
+    this._returnFocus = null;
+    this._returnScroll = 0;
+    Results.render();
+    // Restore scroll + focus to the originating row when possible.
+    try {
+      const scroller = view?.closest(".content");
+      if (scroller) scroller.scrollTop = returnScroll;
+    } catch {
+      /* scroll restore optional */
+    }
+    try {
+      if (returnFocus && document.contains(returnFocus)) returnFocus.focus();
+    } catch {
+      /* focus restore optional */
+    }
+  },
+
+  fill(tech) {
+    const icon = Elements.get("detailIcon");
+    if (icon) {
+      let glyph = "";
+      try {
+        if (tech.logo) {
+          glyph = `<img src="${tech.logo}" alt="" width="20" height="20" />`;
+        } else {
+          glyph = Results.iconFor(tech.category);
+        }
+      } catch {
+        glyph = "";
+      }
+      icon.innerHTML = glyph;
+    }
+    const name = Elements.get("detailName");
+    if (name) {
+      name.textContent = tech.name;
+      name.title = tech.description || tech.name;
+    }
+    const conf = Elements.get("detailConf");
+    if (conf) {
+      const level = tech.confidence || "low";
+      conf.className = `conf conf-${level}`;
+      conf.textContent = level;
+      conf.title = `Confidence: ${level} (${(tech.detectedBy || []).join(", ") || "n/a"}) · score ${typeof tech.score === "number" ? tech.score : "n/a"}`;
+    }
+    const ver = Elements.get("detailVer");
+    if (ver) {
+      if (tech.version) {
+        ver.hidden = false;
+        ver.textContent = `v${tech.version}`;
+        ver.title = `Version ${tech.version}`;
+      } else {
+        ver.hidden = true;
+        ver.textContent = "";
+      }
+    }
+    const cat = Elements.get("detailCategory");
+    if (cat) cat.textContent = tech.category || "Other";
+    const descWrap = Elements.get("detailDescWrap");
+    const desc = Elements.get("detailDesc");
+    if (desc) desc.textContent = tech.description || "No description available.";
+    if (descWrap) descWrap.hidden = false;
+    const reason = Elements.get("detailReason");
+    if (reason) {
+      let sentence = "";
+      try {
+        sentence = Results.evidenceSentence(tech.detectedBy);
+      } catch {
+        sentence = "";
+      }
+      reason.textContent =
+        sentence || "Signals matched this technology's detection rules.";
+    }
+    // WordPress extras (theme / plugins) when present.
+    const wpWrap = Elements.get("detailWpWrap");
+    const wp = Elements.get("detailWp");
+    if (wpWrap && wp) {
+      const parts = [];
+      try {
+        if (tech.slug === "wordpress" && tech.details) {
+          const { theme, plugins } = tech.details;
+          if (theme?.name) parts.push(`Theme: ${theme.name}`);
+          if (Array.isArray(plugins) && plugins.length > 0) {
+            parts.push(`Plugins: ${plugins.map((p) => p.name).join(", ")}`);
+          }
+        }
+      } catch {
+        /* extras optional */
+      }
+      if (parts.length > 0) {
+        wpWrap.hidden = false;
+        wp.textContent = parts.join(" · ");
+      } else {
+        wpWrap.hidden = true;
+        wp.textContent = "";
+      }
+    }
+    const site = Elements.get("detailWebsite");
+    if (site) {
+      if (tech.website) {
+        site.hidden = false;
+        site.href = tech.website;
+        site.title = tech.description || tech.website;
+      } else {
+        site.hidden = true;
+        site.removeAttribute("href");
+      }
+    }
+  }
+};
+
 // ---------- Results ----------
 const Results = {
   lastVisibleCount: 0,
@@ -290,6 +468,26 @@ const Results = {
     });
 
     const isScanning = Store.status === "scanning";
+    const detailView = Elements.get("detailView");
+    const noMatch = Elements.get("noMatch");
+
+    // Detail view takes over the content area; list states stay hidden.
+    if (Store.selectedSlug !== null) {
+      const tech = Detail.find(Store.selectedSlug);
+      if (tech && detailView) {
+        Detail.fill(tech);
+        loading.hidden = true;
+        empty.hidden = true;
+        list.hidden = true;
+        if (noMatch) noMatch.hidden = true;
+        detailView.hidden = false;
+        this.updateSubtitle(items.length);
+        return;
+      }
+      // Selection no longer exists (rescan / new data) — fall back to list.
+      Store.selectedSlug = null;
+    }
+    if (detailView) detailView.hidden = true;
     loading.hidden = !isScanning;
 
     // Empty state doubles as error/unsupported notice.
@@ -372,6 +570,11 @@ const Results = {
   row(tech) {
     const li = document.createElement("div");
     li.className = "tech";
+    li.setAttribute("role", "button");
+    li.setAttribute("tabindex", "0");
+    li.dataset.slug = tech.slug;
+    li.setAttribute("aria-label", `View ${tech.name} details`);
+    li.title = `View ${tech.name} details`;
 
     const icon = document.createElement("span");
     icon.className = "tech-icon";
@@ -476,6 +679,29 @@ const Results = {
       ver.title = `Version ${tech.version}`;
       li.append(ver);
     }
+
+    const chev = document.createElement("span");
+    chev.className = "tech-chev";
+    chev.setAttribute("aria-hidden", "true");
+    chev.innerHTML =
+      '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    li.append(chev);
+
+    // Whole row opens the detail view; the inline website link keeps
+    // working and must not trigger the detail view.
+    li.addEventListener("click", (e) => {
+      const anchor = e.target?.closest?.("a");
+      if (anchor && li.contains(anchor)) return;
+      Detail.open(tech.slug);
+    });
+    li.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        const anchor = e.target?.closest?.("a");
+        if (anchor && li.contains(anchor)) return;
+        e.preventDefault();
+        Detail.open(tech.slug);
+      }
+    });
     return li;
   },
 
@@ -612,6 +838,7 @@ const Actions = {
     if (Store.status === "scanning") return;
     const scanId = ++this._scanSeq;
     const isCurrent = () => scanId === this._scanSeq;
+    Detail.closeSilent();
     Search.clear();
     CategoryFilters.reset();
     Store.notice = "";
@@ -658,6 +885,7 @@ document.addEventListener("DOMContentLoaded", () => {
   CategoryFilters.syncUI();
   Search.init();
   CategoryFilters.init();
+  Detail.init();
   Domain.resolve();
 
   const btn = Elements.get("scanBtn");

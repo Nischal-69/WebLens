@@ -101,6 +101,45 @@
         <p class="no-match-sub">No matches for “<span id="noMatchQuery"></span>”<span id="noMatchFilter"></span>.</p>
         <button id="clearFiltersBtn" type="button" class="link-btn">Clear search &amp; filters</button>
       </div>
+
+      <!-- Technology detail view (inside popup) -->
+      <section id="detailView" class="detail" hidden aria-label="Technology details">
+        <button id="backBtn" type="button" class="back-btn">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M10 3 5 8l5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span>Back</span>
+        </button>
+        <div class="detail-head">
+          <span id="detailIcon" class="detail-icon" aria-hidden="true"></span>
+          <div class="detail-title-wrap">
+            <h2 id="detailName" class="detail-name">…</h2>
+            <div class="detail-badges">
+              <span id="detailConf" class="conf conf-low">low</span>
+              <span id="detailVer" class="tech-ver" hidden></span>
+            </div>
+          </div>
+        </div>
+        <dl class="detail-list">
+          <div class="detail-row">
+            <dt>Category:</dt>
+            <dd id="detailCategory">…</dd>
+          </div>
+          <div class="detail-row" id="detailDescWrap">
+            <dt>Description:</dt>
+            <dd id="detailDesc">…</dd>
+          </div>
+          <div class="detail-row">
+            <dt>Detected because:</dt>
+            <dd id="detailReason">…</dd>
+          </div>
+          <div class="detail-row" id="detailWpWrap" hidden>
+            <dt>WordPress:</dt>
+            <dd id="detailWp">…</dd>
+          </div>
+        </dl>
+        <a id="detailWebsite" class="site-btn" target="_blank" rel="noopener noreferrer" hidden>Visit official website</a>
+      </section>
     </main>
   </div>
 
