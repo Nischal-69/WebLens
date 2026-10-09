@@ -299,7 +299,7 @@ const Results = {
       if (emptyTitle) emptyTitle.textContent = "Scan unavailable";
       if (emptySub) emptySub.textContent = Store.notice;
     } else {
-      if (emptyTitle) emptyTitle.textContent = "No technologies yet";
+      if (emptyTitle) emptyTitle.textContent = "Ready to inspect this website";
       if (emptySub) emptySub.textContent = "Run a scan to see what powers this site.";
     }
 
@@ -484,7 +484,7 @@ const Results = {
     const sub = Elements.get("siteSubtitle");
     if (!sub) return;
     if (Store.status === "scanning") {
-      sub.textContent = "Scanning…";
+      sub.textContent = "Scanning website...";
       return;
     }
     if (Store.status === "error") {
@@ -492,7 +492,7 @@ const Results = {
       return;
     }
     if (Store.technologies.length === 0) {
-      sub.textContent = "Ready to scan";
+      sub.textContent = "Ready to inspect this website";
       return;
     }
     if (n === 0) {
@@ -554,8 +554,20 @@ const Search = {
 
 // ---------- Scanner (real detection path) ----------
 const Scanner = {
+  SCAN_TIMEOUT_MS: 15000,
+
   isScannable(url) {
     return typeof url === "string" && /^https?:\/\//i.test(url);
+  },
+
+  withTimeout(promise, ms, message) {
+    let timer = null;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(message)), ms);
+    });
+    return Promise.race([promise, timeout]).finally(() => {
+      if (timer !== null) clearTimeout(timer);
+    });
   },
 
   async probeMainWorld(tabId) {
@@ -579,10 +591,14 @@ const Scanner = {
       throw new Error("Cannot scan this page. Open a regular http(s) website and retry.");
     }
     const mainGlobals = await this.probeMainWorld(tab.id);
-    const resp = await chrome.tabs.sendMessage(tab.id, {
-      type: "WEBLENS_SCAN",
-      mainGlobals
-    });
+    const resp = await this.withTimeout(
+      chrome.tabs.sendMessage(tab.id, {
+        type: "WEBLENS_SCAN",
+        mainGlobals
+      }),
+      this.SCAN_TIMEOUT_MS,
+      "Scan timed out. Reload the page and retry."
+    );
     if (!resp) throw new Error("No response from page. Reload the page and retry.");
     if (!resp.ok) throw new Error(resp.error || "Page scan failed.");
     return Array.isArray(resp.technologies) ? resp.technologies : [];
@@ -591,8 +607,11 @@ const Scanner = {
 
 // ---------- Actions ----------
 const Actions = {
+  _scanSeq: 0,
   async onScanRequested() {
     if (Store.status === "scanning") return;
+    const scanId = ++this._scanSeq;
+    const isCurrent = () => scanId === this._scanSeq;
     Search.clear();
     CategoryFilters.reset();
     Store.notice = "";
@@ -601,17 +620,33 @@ const Actions = {
     Results.render();
     try {
       const technologies = await Scanner.scanActiveTab();
+      if (!isCurrent()) return; // a newer scan superseded this one
       Store.technologies = technologies;
       Store.notice = "";
       Status.set("done");
       console.log(`[WebLens] Scan done: ${technologies.length} technologies.`);
     } catch (err) {
+      if (!isCurrent()) return; // stale failure must not overwrite a newer scan
       Store.technologies = [];
       Store.notice = err?.message || "Scan failed.";
       Status.set("error");
       console.warn("[WebLens] Scan failed:", err);
+    } finally {
+      // Guarantee the UI always leaves the loading state, even if
+      // Status.set or render throws unexpectedly.
+      if (isCurrent() && Store.status === "scanning") {
+        try {
+          Status.set("error");
+        } catch {
+          Store.status = "error";
+        }
+      }
+      try {
+        Results.render();
+      } catch (renderErr) {
+        console.warn("[WebLens] Results.render failed:", renderErr);
+      }
     }
-    Results.render();
   }
 };
 
