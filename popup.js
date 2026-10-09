@@ -3,10 +3,10 @@
  * Popup UI controller + scan orchestration (detection engine v1).
  *
  * Modules:
- *   Store    -> { status, technologies[], filter, notice }
+ *   Store    -> { status, technologies[], filter, activeCategory, notice }
  *   Elements -> DOM cache
- *   Domain   -> active-tab hostname display
- *   Status   -> idle | scanning | done | error
+ *   Site     -> active-tab favicon + domain + title + HTTPS display
+ *   Status   -> idle | scanning | done | error (scan button + subtitle)
  *   Results  -> render structured technologies [{name,category,description,
  *               confidence,score,detectedBy,website,logo,version}]
  *   Search   -> client-side filter
@@ -29,10 +29,13 @@ const Elements = {
   cache() {
     const ids = [
       "domainName",
+      "pageTitle",
+      "siteSubtitle",
+      "siteFavicon",
+      "siteFallback",
+      "httpsBadge",
       "scanBtn",
-      "scanStatus",
-      "scanStatusDot",
-      "techCount",
+      "scanBtnLabel",
       "searchInput",
       "categoryFilters",
       "loadingState",
@@ -41,8 +44,7 @@ const Elements = {
       "noMatch",
       "noMatchQuery",
       "noMatchFilter",
-      "clearFiltersBtn",
-      "footerStatus"
+      "clearFiltersBtn"
     ];
     for (const id of ids) this.els[id] = document.getElementById(id);
   },
@@ -51,8 +53,10 @@ const Elements = {
   }
 };
 
-// ---------- Domain ----------
-const Domain = {
+// ---------- Site ----------
+// Compact top section: favicon + domain + page title + HTTPS badge.
+// Single active-tab query; pure display, never triggers a scan.
+const Site = {
   async getActiveTab() {
     try {
       if (!chrome?.tabs?.query) return null;
@@ -64,44 +68,125 @@ const Domain = {
     }
   },
 
-  async resolve() {
-    const label = Elements.get("domainName");
-    if (!label) return;
-    const tab = await this.getActiveTab();
-    if (tab?.url) {
-      try {
-        label.textContent = new URL(tab.url).hostname || "unknown site";
-        label.title = tab.url;
-        return;
-      } catch {
-        /* fall through */
-      }
+  setFavicon(favIconUrl) {
+    const img = Elements.get("siteFavicon");
+    const fallback = Elements.get("siteFallback");
+    if (!img || !fallback) return;
+    if (typeof favIconUrl === "string" && favIconUrl.length > 0) {
+      img.onerror = () => {
+        img.hidden = true;
+        img.removeAttribute("src");
+        fallback.style.display = "";
+      };
+      img.hidden = false;
+      fallback.style.display = "none";
+      img.src = favIconUrl;
+    } else {
+      img.hidden = true;
+      img.removeAttribute("src");
+      fallback.style.display = "";
     }
-    label.textContent = "unknown site";
+  },
+
+  setHttps(url) {
+    const badge = Elements.get("httpsBadge");
+    if (!badge) return;
+    let protocol = "";
+    try {
+      protocol = new URL(url).protocol || "";
+    } catch {
+      protocol = "";
+    }
+    const LOCK =
+      '<svg width="10" height="10" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><rect x="3.5" y="7" width="9" height="6.5" rx="1.2" stroke="currentColor" stroke-width="1.5"/><path d="M5.5 7V5.5a2.5 2.5 0 0 1 5 0V7" stroke="currentColor" stroke-width="1.5"/></svg>';
+    const WARN =
+      '<svg width="10" height="10" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M8 2 14.5 13.5h-13L8 2Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><line x1="8" y1="6.5" x2="8" y2="9.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="11.5" r="0.9" fill="currentColor"/></svg>';
+    if (protocol === "https:") {
+      badge.className = "https is-secure";
+      badge.title = "Secure HTTPS connection";
+      badge.innerHTML = `${LOCK}<span>Secure</span>`;
+    } else if (protocol === "http:") {
+      badge.className = "https is-insecure";
+      badge.title = "Not secure — plain HTTP";
+      badge.innerHTML = `${WARN}<span>Not secure</span>`;
+    } else {
+      badge.className = "https is-na";
+      badge.title = "Local or browser page";
+      badge.textContent = "Local page";
+    }
+  },
+
+  async resolve() {
+    const domain = Elements.get("domainName");
+    const title = Elements.get("pageTitle");
+    const tab = await this.getActiveTab();
+    if (!tab?.url) {
+      if (domain) {
+        domain.textContent = "unknown site";
+        domain.title = "Current site";
+      }
+      if (title) {
+        title.textContent = "";
+        title.title = "";
+      }
+      this.setFavicon("");
+      this.setHttps("");
+      return tab;
+    }
+    let hostname = "unknown site";
+    try {
+      hostname = new URL(tab.url).hostname || "unknown site";
+    } catch {
+      /* keep fallback */
+    }
+    if (domain) {
+      domain.textContent = hostname;
+      domain.title = tab.url;
+    }
+    const pageTitle = typeof tab.title === "string" ? tab.title.trim() : "";
+    if (title) {
+      title.textContent = pageTitle;
+      title.title = pageTitle;
+    }
+    this.setFavicon(tab.favIconUrl || "");
+    this.setHttps(tab.url);
+    return tab;
   }
 };
 
+// Back-compat alias (Domain -> Site).
+const Domain = Site;
+
 // ---------- Status ----------
 const Status = {
-  set(next, footerOverride) {
+  set(next) {
     Store.status = next;
-    const text = Elements.get("scanStatus");
-    const dot = Elements.get("scanStatusDot");
-    const footer = Elements.get("footerStatus");
     const btn = Elements.get("scanBtn");
+    const label = Elements.get("scanBtnLabel");
 
-    const map = {
-      idle: { label: "Idle", footer: "ready" },
-      scanning: { label: "Scanning", footer: "scanning…" },
-      done: { label: "Done", footer: `${Store.technologies.length} found` },
-      error: { label: "Error", footer: Store.notice || "scan failed" }
-    };
-    const state = map[next] || map.idle;
-
-    if (text) text.textContent = state.label;
-    if (footer) footer.textContent = footerOverride || state.footer;
-    if (dot) dot.className = `dot dot-${next === "idle" ? "idle" : next}`;
-    if (btn) btn.disabled = next === "scanning";
+    if (next === "scanning") {
+      if (label) label.textContent = "Scanning…";
+      if (btn) {
+        btn.disabled = true;
+        btn.setAttribute("aria-busy", "true");
+      }
+    } else {
+      if (btn) {
+        btn.disabled = false;
+        btn.removeAttribute("aria-busy");
+      }
+      if (label) {
+        if (next === "error") label.textContent = "Retry Scan";
+        else if (Store.technologies.length > 0) label.textContent = "Scan Again";
+        else label.textContent = "Scan Website";
+      }
+    }
+    // Keep the count subtitle in sync (e.g. button-only transitions).
+    try {
+      Results.updateSubtitle(Results.lastVisibleCount ?? Store.technologies.length);
+    } catch {
+      /* subtitle optional */
+    }
   }
 };
 
@@ -178,6 +263,7 @@ const CategoryFilters = {
 
 // ---------- Results ----------
 const Results = {
+  lastVisibleCount: 0,
   render() {
     const list = Elements.get("resultsList");
     const empty = Elements.get("emptyState");
@@ -226,7 +312,7 @@ const Results = {
       for (const tech of grp.items) list.appendChild(this.row(tech));
     }
 
-    this.updateCount(items.length);
+    this.updateSubtitle(items.length);
     this.updateNoMatch(items.length, query);
   },
 
@@ -393,9 +479,28 @@ const Results = {
     return li;
   },
 
-  updateCount(n) {
-    const count = Elements.get("techCount");
-    if (count) count.textContent = `${n} found`;
+  updateSubtitle(n) {
+    this.lastVisibleCount = n;
+    const sub = Elements.get("siteSubtitle");
+    if (!sub) return;
+    if (Store.status === "scanning") {
+      sub.textContent = "Scanning…";
+      return;
+    }
+    if (Store.status === "error") {
+      sub.textContent = Store.notice || "Scan failed";
+      return;
+    }
+    if (Store.technologies.length === 0) {
+      sub.textContent = "Ready to scan";
+      return;
+    }
+    if (n === 0) {
+      sub.textContent = "No matches for current filters";
+      return;
+    }
+    sub.textContent =
+      n === 1 ? "1 technology detected" : `${n} technologies detected`;
   },
 
   updateNoMatch(visibleCount, query) {

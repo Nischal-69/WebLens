@@ -8,36 +8,23 @@
 </head>
 <body>
   <div class="app">
-    <!-- Header: logo + title -->
-    <header class="topbar">
-      <div class="brand">
-        <span class="logo" aria-hidden="true">
-          <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <rect width="28" height="28" rx="6" fill="#1D4ED8"/>
-            <circle cx="12.5" cy="12.5" r="6" stroke="#FFFFFF" stroke-width="2.2"/>
-            <line x1="17" y1="17" x2="22" y2="22" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round"/>
-            <circle cx="10.5" cy="10.5" r="1.4" fill="#BFDBFE"/>
-          </svg>
-        </span>
-        <div class="brand-text">
-          <h1 class="title">WebLens</h1>
-          <p class="tagline">See what powers the web.</p>
-        </div>
-      </div>
-      <span class="version" title="Extension version">v0.1.0</span>
-    </header>
-
-    <!-- Current website -->
+    <!-- Current website: favicon + domain + title + HTTPS + count -->
     <section class="sitebar" aria-label="Current website">
-      <svg class="site-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-        <circle cx="8" cy="8" r="6.2" stroke="#475569" stroke-width="1.4"/>
-        <path d="M1.8 8h12.4M8 1.8c-3.6 3.4-3.6 9 0 12.4M8 1.8c3.6 3.4 3.6 9 0 12.4" stroke="#475569" stroke-width="1.2"/>
-      </svg>
-      <span id="domainName" class="domain" title="Current site">…</span>
-      <span class="status-wrap">
-        <span id="scanStatusDot" class="dot dot-idle" aria-hidden="true"></span>
-        <span id="scanStatus" class="status" role="status" aria-live="polite">Idle</span>
+      <span class="site-favicon" aria-hidden="true">
+        <img id="siteFavicon" alt="" hidden />
+        <svg id="siteFallback" width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <circle cx="8" cy="8" r="6.2" stroke="#475569" stroke-width="1.4"/>
+          <path d="M1.8 8h12.4M8 1.8c-3.6 3.4-3.6 9 0 12.4M8 1.8c3.6 3.4 3.6 9 0 12.4" stroke="#475569" stroke-width="1.2"/>
+        </svg>
       </span>
+      <div class="site-text">
+        <div class="site-row">
+          <span id="domainName" class="domain" title="Current site">…</span>
+          <span id="httpsBadge" class="https is-na" title="Connection status">…</span>
+        </div>
+        <div id="pageTitle" class="page-title" title="">…</div>
+        <div id="siteSubtitle" class="site-sub" role="status" aria-live="polite">Ready to scan</div>
+      </div>
     </section>
 
     <!-- Scan action -->
@@ -47,11 +34,11 @@
           <circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.6"/>
           <line x1="10.5" y1="10.5" x2="14" y2="14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
         </svg>
-        <span>Scan Website</span>
+        <span id="scanBtnLabel">Scan Website</span>
       </button>
     </section>
 
-    <!-- Count + search toolbar -->
+    <!-- Search toolbar -->
     <section class="toolbar">
       <div class="search">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -60,7 +47,6 @@
         </svg>
         <input id="searchInput" type="search" placeholder="Filter technologies…" aria-label="Filter technologies" autocomplete="off" />
       </div>
-      <span id="techCount" class="count" aria-live="polite">0 found</span>
     </section>
 
     <!-- Category filters -->
@@ -116,12 +102,6 @@
         <button id="clearFiltersBtn" type="button" class="link-btn">Clear search &amp; filters</button>
       </div>
     </main>
-
-    <footer class="footer">
-      <span>WebLens · dev build</span>
-      <span class="footer-dot" aria-hidden="true">·</span>
-      <span id="footerStatus">ready</span>
-    </footer>
   </div>
 
   <script src="core/categories.js"></script>
