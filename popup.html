@@ -61,6 +61,14 @@
       <button type="button" class="filter-btn" data-filter="Other" aria-pressed="false">Other</button>
     </div>
 
+    <!-- Export actions (visible only with scan results) -->
+    <div id="exportBar" class="export-bar" hidden>
+      <span class="export-label">Results</span>
+      <button id="copyBtn" type="button" class="ghost-btn">Copy Results</button>
+      <button id="exportJsonBtn" type="button" class="ghost-btn">Export JSON</button>
+      <span id="exportStatus" class="export-status" role="status" aria-live="polite"></span>
+    </div>
+
     <!-- Results area -->
     <main class="content" aria-label="Scan results">
       <!-- Loading state -->

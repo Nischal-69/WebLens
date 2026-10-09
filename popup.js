@@ -11,6 +11,7 @@
  *               confidence,score,detectedBy,website,logo,version}]
  *   Detail   -> in-popup technology detail view (open / close / fill)
  *   Search   -> client-side filter
+ *   Export   -> local-only copy results + JSON download (no network)
  *   Scanner  -> MAIN probe + content-script messaging (no backend)
  *   Actions  -> Scan button handler
  */
@@ -59,7 +60,11 @@ const Elements = {
       "detailReason",
       "detailWpWrap",
       "detailWp",
-      "detailWebsite"
+      "detailWebsite",
+      "exportBar",
+      "copyBtn",
+      "exportJsonBtn",
+      "exportStatus"
     ];
     for (const id of ids) this.els[id] = document.getElementById(id);
   },
@@ -482,6 +487,11 @@ const Results = {
         if (noMatch) noMatch.hidden = true;
         detailView.hidden = false;
         this.updateSubtitle(items.length);
+        try {
+          Export.sync();
+        } catch {
+          /* export bar optional */
+        }
         return;
       }
       // Selection no longer exists (rescan / new data) — fall back to list.
@@ -512,6 +522,11 @@ const Results = {
 
     this.updateSubtitle(items.length);
     this.updateNoMatch(items.length, query);
+    try {
+      Export.sync();
+    } catch {
+      /* export bar optional */
+    }
   },
 
   groupItems(items) {
@@ -778,6 +793,159 @@ const Search = {
   }
 };
 
+// ---------- Export ----------
+// Local-only export: copy formatted results to clipboard + download JSON.
+// No network involved — clipboard writes and Blob downloads only.
+const Export = {
+  _statusTimer: null,
+
+  init() {
+    const copy = Elements.get("copyBtn");
+    if (copy) copy.addEventListener("click", () => this.copy());
+    const json = Elements.get("exportJsonBtn");
+    if (json) json.addEventListener("click", () => this.downloadJson());
+  },
+
+  domain() {
+    const label = Elements.get("domainName");
+    const text = label ? label.textContent.trim() : "";
+    return text && text !== "…" ? text : "unknown site";
+  },
+
+  pageUrl() {
+    const label = Elements.get("domainName");
+    return (label && label.title) || "";
+  },
+
+  pageTitle() {
+    const el = Elements.get("pageTitle");
+    return el ? el.textContent.trim() : "";
+  },
+
+  formatText() {
+    const lines = [`Website: ${this.domain()}`, "", "Technologies:", ""];
+    for (const t of Store.technologies || []) lines.push(`* ${t.name}`);
+    return lines.join("\n");
+  },
+
+  buildJson() {
+    return {
+      website: this.domain(),
+      url: this.pageUrl(),
+      pageTitle: this.pageTitle(),
+      scannedAt: new Date().toISOString(),
+      count: (Store.technologies || []).length,
+      technologies: (Store.technologies || []).map((t) => {
+        const entry = {
+          slug: t.slug,
+          name: t.name,
+          category: t.category || "Other",
+          description: t.description || "",
+          confidence: t.confidence || "low",
+          score: typeof t.score === "number" ? t.score : null,
+          detectedBy: t.detectedBy || [],
+          website: t.website || null,
+          version: t.version || null
+        };
+        if (t.details) entry.details = t.details;
+        return entry;
+      })
+    };
+  },
+
+  setStatus(text, ok) {
+    const el = Elements.get("exportStatus");
+    if (!el) return;
+    el.textContent = text;
+    el.classList.toggle("is-ok", !!ok);
+    if (this._statusTimer !== null) clearTimeout(this._statusTimer);
+    this._statusTimer = setTimeout(() => {
+      const cur = Elements.get("exportStatus");
+      if (cur && cur.textContent === text) {
+        cur.textContent = "";
+        cur.classList.remove("is-ok");
+      }
+    }, 2500);
+  },
+
+  async copyFallback(text) {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+      const done = document.execCommand("copy");
+      if (!done) throw new Error("execCommand copy failed");
+    } finally {
+      ta.remove();
+    }
+  },
+
+  async copy() {
+    if (Store.status !== "done" || (Store.technologies || []).length === 0) return;
+    const text = this.formatText();
+    const btn = Elements.get("copyBtn");
+    const restore = btn ? btn.textContent : "";
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        await this.copyFallback(text);
+      }
+      if (btn) btn.textContent = "Copied ✓";
+      this.setStatus("Copied to clipboard", true);
+    } catch (err) {
+      console.warn("[WebLens] Copy failed:", err);
+      try {
+        await this.copyFallback(text);
+        if (btn) btn.textContent = "Copied ✓";
+        this.setStatus("Copied to clipboard", true);
+      } catch (fallbackErr) {
+        console.warn("[WebLens] Copy fallback failed:", fallbackErr);
+        this.setStatus("Copy failed — select manually", false);
+      }
+    }
+    if (btn) setTimeout(() => { if (btn.textContent !== restore) btn.textContent = restore; }, 2000);
+  },
+
+  downloadJson() {
+    if (Store.status !== "done" || (Store.technologies || []).length === 0) return;
+    try {
+      const json = JSON.stringify(this.buildJson(), null, 2);
+      const blob = new Blob([json], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const safe = this.domain().toLowerCase().replace(/[^a-z0-9.-]+/g, "-").replace(/^-+|-+$/g, "") || "site";
+      const d = new Date();
+      const pad = (n) => String(n).padStart(2, "0");
+      const stamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
+      a.href = url;
+      a.download = `weblens-${safe}-${stamp}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+      this.setStatus("Downloaded JSON", true);
+    } catch (err) {
+      console.warn("[WebLens] JSON export failed:", err);
+      this.setStatus("Export failed", false);
+    }
+  },
+
+  sync() {
+    const bar = Elements.get("exportBar");
+    if (!bar) return;
+    const show =
+      Store.status === "done" &&
+      (Store.technologies || []).length > 0 &&
+      Store.selectedSlug === null;
+    bar.hidden = !show;
+  }
+};
+
 // ---------- Scanner (real detection path) ----------
 const Scanner = {
   SCAN_TIMEOUT_MS: 15000,
@@ -886,6 +1054,7 @@ document.addEventListener("DOMContentLoaded", () => {
   Search.init();
   CategoryFilters.init();
   Detail.init();
+  Export.init();
   Domain.resolve();
 
   const btn = Elements.get("scanBtn");
