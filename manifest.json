@@ -83,7 +83,7 @@
       "run_at": "document_idle"
     }
   ],
-  "permissions": ["activeTab", "scripting", "favicon"],
+  "permissions": ["activeTab", "scripting", "favicon", "storage"],
   "host_permissions": ["<all_urls>"],
   "icons": {
     "16": "icons/icon16.png",

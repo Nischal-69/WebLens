@@ -12,6 +12,7 @@
  *   Detail   -> in-popup technology detail view (open / close / fill)
  *   Search   -> client-side filter
  *   Export   -> local-only copy results + JSON download (no network)
+ *   History  -> local scan history in chrome.storage.local (never uploaded)
  *   Scanner  -> MAIN probe + content-script messaging (no backend)
  *   Actions  -> Scan button handler
  */
@@ -23,6 +24,7 @@ const Store = {
   filter: "",
   activeCategory: "All", // All | Frameworks | CMS | Analytics | WordPress | Fonts | Infrastructure | Other
   selectedSlug: null, // slug of technology shown in the detail view, or null
+  viewingHistoryId: null, // id of open history snapshot, or null for live results
   notice: "" // e.g. "Cannot scan this page" / error text
 };
 
@@ -64,7 +66,18 @@ const Elements = {
       "exportBar",
       "copyBtn",
       "exportJsonBtn",
-      "exportStatus"
+      "exportStatus",
+      "historySection",
+      "historyToggle",
+      "historyCount",
+      "historyBody",
+      "historyBanner",
+      "historyBannerText",
+      "historyBackBtn",
+      "historyList",
+      "historyEmpty",
+      "clearHistoryBtn",
+      "historyStatus"
     ];
     for (const id of ids) this.els[id] = document.getElementById(id);
   },
@@ -492,6 +505,11 @@ const Results = {
         } catch {
           /* export bar optional */
         }
+        try {
+          History.syncBanner();
+        } catch {
+          /* history banner optional */
+        }
         return;
       }
       // Selection no longer exists (rescan / new data) — fall back to list.
@@ -526,6 +544,11 @@ const Results = {
       Export.sync();
     } catch {
       /* export bar optional */
+    }
+    try {
+      History.syncBanner();
+    } catch {
+      /* history banner optional */
     }
   },
 
@@ -740,8 +763,9 @@ const Results = {
       sub.textContent = "No matches for current filters";
       return;
     }
-    sub.textContent =
+    const base =
       n === 1 ? "1 technology detected" : `${n} technologies detected`;
+    sub.textContent = Store.viewingHistoryId ? `History · ${base}` : base;
   },
 
   updateNoMatch(visibleCount, query) {
@@ -946,6 +970,262 @@ const Export = {
   }
 };
 
+// ---------- History ----------
+// Local scan history. Stored ONLY in chrome.storage.local under a single
+// key — never sent anywhere (no fetch/XHR in this file). Newest first,
+// capped at MAX entries with oldest pruned.
+const History = {
+  KEY: "weblens.history.v1",
+  MAX: 20,
+  _entries: [],
+  _expanded: false,
+
+  available() {
+    try {
+      return !!(chrome?.storage?.local?.get && chrome?.storage?.local?.set);
+    } catch {
+      return false;
+    }
+  },
+
+  makeId() {
+    try {
+      if (crypto?.randomUUID) return crypto.randomUUID();
+    } catch {
+      /* fall through */
+    }
+    return `scan-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+  },
+
+  formatDate(iso) {
+    try {
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return String(iso || "");
+      return d.toLocaleString(undefined, {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit"
+      });
+    } catch {
+      return String(iso || "");
+    }
+  },
+
+  async init() {
+    const section = Elements.get("historySection");
+    if (!section) return;
+    if (!this.available()) {
+      section.hidden = true;
+      return;
+    }
+    section.hidden = false;
+    const toggle = Elements.get("historyToggle");
+    if (toggle) toggle.addEventListener("click", () => this.toggle());
+    const back = Elements.get("historyBackBtn");
+    if (back) back.addEventListener("click", () => this.backToLive());
+    const clear = Elements.get("clearHistoryBtn");
+    if (clear) clear.addEventListener("click", () => this.clear());
+    await this.load();
+  },
+
+  toggle() {
+    this._expanded = !this._expanded;
+    const body = Elements.get("historyBody");
+    const toggle = Elements.get("historyToggle");
+    if (body) body.hidden = !this._expanded;
+    if (toggle) toggle.setAttribute("aria-expanded", this._expanded ? "true" : "false");
+  },
+
+  async load() {
+    if (!this.available()) return [];
+    try {
+      const res = await chrome.storage.local.get(this.KEY);
+      const list = res?.[this.KEY];
+      this._entries = Array.isArray(list) ? list : [];
+    } catch (err) {
+      console.warn("[WebLens] History load failed:", err);
+      this._entries = [];
+    }
+    this.render();
+    return this._entries;
+  },
+
+  async persist() {
+    await chrome.storage.local.set({ [this.KEY]: this._entries.slice(0, this.MAX) });
+  },
+
+  // Fire-and-forget from the scan success path — never blocks rendering.
+  save(entry) {
+    if (!this.available()) return;
+    try {
+      this._entries = [entry, ...this._entries].slice(0, this.MAX);
+      this.render();
+      this.persist().catch((err) => {
+        // Quota pressure: drop oldest and retry once, else warn only.
+        console.warn("[WebLens] History persist failed, pruning:", err);
+        try {
+          this._entries = this._entries.slice(0, Math.max(1, this.MAX - 5));
+          this.render();
+          this.persist().catch((retryErr) => {
+            console.warn("[WebLens] History persist retry failed:", retryErr);
+          });
+        } catch {
+          /* storage must never break scanning */
+        }
+      });
+    } catch (err) {
+      console.warn("[WebLens] History save failed:", err);
+    }
+  },
+
+  snapshot(domain, url, pageTitle, technologies) {
+    return {
+      id: this.makeId(),
+      domain: domain || "unknown site",
+      url: url || "",
+      pageTitle: pageTitle || "",
+      scannedAt: new Date().toISOString(),
+      count: (technologies || []).length,
+      technologies: Array.isArray(technologies) ? technologies : []
+    };
+  },
+
+  open(id) {
+    const entry = this._entries.find((e) => e.id === id);
+    if (!entry) return;
+    Detail.closeSilent();
+    Search.clear();
+    CategoryFilters.reset();
+    Store.notice = "";
+    Store.technologies = Array.isArray(entry.technologies) ? entry.technologies : [];
+    Store.viewingHistoryId = entry.id;
+    Store.status = "done";
+    try {
+      Status.set("done");
+    } catch {
+      /* subtitle sync optional */
+    }
+    Results.render();
+    this.syncBanner();
+  },
+
+  backToLive() {
+    if (!Store.viewingHistoryId) return;
+    Store.viewingHistoryId = null;
+    Detail.closeSilent();
+    Search.clear();
+    CategoryFilters.reset();
+    Store.notice = "";
+    Store.technologies = [];
+    try {
+      Status.set("idle");
+    } catch {
+      Store.status = "idle";
+    }
+    Results.render();
+    this.syncBanner();
+  },
+
+  async clear() {
+    if (!this.available()) return;
+    const wasViewing = !!Store.viewingHistoryId;
+    try {
+      await chrome.storage.local.remove(this.KEY);
+    } catch (err) {
+      console.warn("[WebLens] History clear failed:", err);
+      this.setStatus("Clear failed", false);
+      return;
+    }
+    this._entries = [];
+    if (wasViewing) {
+      Store.viewingHistoryId = null;
+      Detail.closeSilent();
+      Store.technologies = [];
+      Store.notice = "";
+      try {
+        Status.set("idle");
+      } catch {
+        Store.status = "idle";
+      }
+    }
+    this.render();
+    Results.render();
+    this.setStatus("History cleared", true);
+  },
+
+  setStatus(text, ok) {
+    const el = Elements.get("historyStatus");
+    if (!el) return;
+    el.textContent = text;
+    el.classList.toggle("is-ok", !!ok);
+    setTimeout(() => {
+      const cur = Elements.get("historyStatus");
+      if (cur && cur.textContent === text) {
+        cur.textContent = "";
+        cur.classList.remove("is-ok");
+      }
+    }, 2500);
+  },
+
+  syncBanner() {
+    const banner = Elements.get("historyBanner");
+    const text = Elements.get("historyBannerText");
+    if (!banner) return;
+    const entry = Store.viewingHistoryId
+      ? this._entries.find((e) => e.id === Store.viewingHistoryId)
+      : null;
+    if (!entry) {
+      banner.hidden = true;
+      if (text) text.textContent = "";
+      return;
+    }
+    banner.hidden = false;
+    if (text) text.textContent = `${entry.domain} · ${this.formatDate(entry.scannedAt)} · ${entry.count} tech`;
+  },
+
+  render() {
+    const count = Elements.get("historyCount");
+    if (count) count.textContent = String(this._entries.length);
+    const list = Elements.get("historyList");
+    const empty = Elements.get("historyEmpty");
+    const clear = Elements.get("clearHistoryBtn");
+    if (!list) return;
+    list.innerHTML = "";
+    const has = this._entries.length > 0;
+    if (empty) empty.hidden = has;
+    if (clear) clear.disabled = !has;
+    for (const entry of this._entries) {
+      const li = document.createElement("li");
+      li.className = "history-item";
+
+      const main = document.createElement("button");
+      main.type = "button";
+      main.className = "history-open";
+      const title = document.createElement("span");
+      title.className = "history-domain";
+      title.textContent = entry.domain || "unknown site";
+      title.title = entry.url || entry.domain || "";
+      const meta = document.createElement("span");
+      meta.className = "history-meta";
+      const n = typeof entry.count === "number" ? entry.count : (entry.technologies || []).length;
+      meta.textContent = `${this.formatDate(entry.scannedAt)} · ${n} tech`;
+      main.append(title, meta);
+      const label = `${entry.domain}, ${this.formatDate(entry.scannedAt)}, ${n} technologies. Open this scan.`;
+      main.setAttribute("aria-label", label);
+      if (Store.viewingHistoryId === entry.id) {
+        main.classList.add("is-viewing");
+        main.setAttribute("aria-current", "true");
+      }
+      main.addEventListener("click", () => this.open(entry.id));
+
+      li.appendChild(main);
+      list.appendChild(li);
+    }
+    this.syncBanner();
+  }
+};
+
 // ---------- Scanner (real detection path) ----------
 const Scanner = {
   SCAN_TIMEOUT_MS: 15000,
@@ -1007,6 +1287,7 @@ const Actions = {
     const scanId = ++this._scanSeq;
     const isCurrent = () => scanId === this._scanSeq;
     Detail.closeSilent();
+    Store.viewingHistoryId = null;
     Search.clear();
     CategoryFilters.reset();
     Store.notice = "";
@@ -1020,6 +1301,21 @@ const Actions = {
       Store.notice = "";
       Status.set("done");
       console.log(`[WebLens] Scan done: ${technologies.length} technologies.`);
+      // Persist successful scans only — fire-and-forget, never blocks UI.
+      try {
+        const domainEl = Elements.get("domainName");
+        const titleEl = Elements.get("pageTitle");
+        History.save(
+          History.snapshot(
+            domainEl ? domainEl.textContent.trim() : "unknown site",
+            domainEl ? domainEl.title || "" : "",
+            titleEl ? titleEl.textContent.trim() : "",
+            technologies
+          )
+        );
+      } catch (histErr) {
+        console.warn("[WebLens] History save failed:", histErr);
+      }
     } catch (err) {
       if (!isCurrent()) return; // stale failure must not overwrite a newer scan
       Store.technologies = [];
@@ -1055,6 +1351,7 @@ document.addEventListener("DOMContentLoaded", () => {
   CategoryFilters.init();
   Detail.init();
   Export.init();
+  History.init();
   Domain.resolve();
 
   const btn = Elements.get("scanBtn");

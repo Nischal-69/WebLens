@@ -149,6 +149,26 @@
         <a id="detailWebsite" class="site-btn" target="_blank" rel="noopener noreferrer" hidden>Visit official website</a>
       </section>
     </main>
+
+    <!-- Local scan history (chrome.storage.local only, never uploaded) -->
+    <section id="historySection" class="history" aria-label="Scan history" hidden>
+      <button id="historyToggle" type="button" class="history-toggle" aria-expanded="false" aria-controls="historyBody">
+        <span>History</span>
+        <span id="historyCount" class="history-count">0</span>
+      </button>
+      <div id="historyBody" class="history-body" hidden>
+        <div id="historyBanner" class="history-banner" hidden>
+          <span id="historyBannerText" class="history-banner-text"></span>
+          <button id="historyBackBtn" type="button" class="link-btn history-back">Back to live results</button>
+        </div>
+        <ul id="historyList" class="history-list"></ul>
+        <p id="historyEmpty" class="history-empty">No saved scans yet.</p>
+        <div class="history-actions">
+          <button id="clearHistoryBtn" type="button" class="ghost-btn danger">Clear History</button>
+          <span id="historyStatus" class="export-status" role="status" aria-live="polite"></span>
+        </div>
+      </div>
+    </section>
   </div>
 
   <script src="core/categories.js"></script>
