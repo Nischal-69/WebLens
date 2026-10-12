@@ -1432,9 +1432,94 @@ const History = {
 // ---------- Scanner (real detection path) ----------
 const Scanner = {
   SCAN_TIMEOUT_MS: 15000,
+  PING_TIMEOUT_MS: 2500,
+
+  // Must stay in sync with the "content_scripts" js list in manifest.json
+  // (same order: signals -> detectors -> registry -> engine -> extras ->
+  // normalize -> content). Used for on-demand injection on tabs that
+  // pre-date install/reload, where the static content script isn't running.
+  CONTENT_FILES: [
+    "core/signals.js",
+    "detectors/react.js",
+    "detectors/nextjs.js",
+    "detectors/vue.js",
+    "detectors/nuxt.js",
+    "detectors/angular.js",
+    "detectors/svelte.js",
+    "detectors/astro.js",
+    "detectors/jquery.js",
+    "detectors/lodash.js",
+    "detectors/gsap.js",
+    "detectors/threejs.js",
+    "detectors/wordpress.js",
+    "detectors/woocommerce.js",
+    "detectors/shopify.js",
+    "detectors/webflow.js",
+    "detectors/wix.js",
+    "detectors/squarespace.js",
+    "detectors/drupal.js",
+    "detectors/joomla.js",
+    "detectors/ghost.js",
+    "detectors/blogger.js",
+    "detectors/tailwind.js",
+    "detectors/bootstrap.js",
+    "detectors/ga.js",
+    "detectors/gtm.js",
+    "detectors/clarity.js",
+    "detectors/hotjar.js",
+    "detectors/matomo.js",
+    "detectors/google-ads.js",
+    "detectors/meta-pixel.js",
+    "detectors/adsense.js",
+    "detectors/hubspot.js",
+    "detectors/mailchimp.js",
+    "detectors/intercom.js",
+    "detectors/crisp.js",
+    "detectors/cloudflare.js",
+    "detectors/cloudflare-pages.js",
+    "detectors/jsdelivr.js",
+    "detectors/unpkg.js",
+    "detectors/google-cdn.js",
+    "detectors/cloudfront.js",
+    "detectors/google-fonts.js",
+    "detectors/font-awesome.js",
+    "detectors/adobe-fonts.js",
+    "detectors/vercel.js",
+    "detectors/netlify.js",
+    "detectors/github-pages.js",
+    "detectors/nginx.js",
+    "detectors/apache.js",
+    "detectors/php.js",
+    "detectors/registry.js",
+    "core/engine.js",
+    "core/categories.js",
+    "core/icons.js",
+    "core/wp-extras.js",
+    "core/normalize.js",
+    "content.js"
+  ],
 
   isScannable(url) {
     return typeof url === "string" && /^https?:\/\//i.test(url);
+  },
+
+  isReceivingEndError(err) {
+    const msg = String((err && err.message) || err || "");
+    return (
+      msg.includes("Receiving end does not exist") ||
+      msg.includes("Could not establish connection")
+    );
+  },
+
+  isRestrictedError(err) {
+    const msg = String((err && err.message) || err || "");
+    return (
+      msg.includes("Cannot access") ||
+      msg.includes("chrome://") ||
+      msg.includes("cannot be scripted") ||
+      msg.includes("No tab with id") ||
+      msg.includes("Invalid tab")
+    );
   },
 
   withTimeout(promise, ms, message) {
@@ -1462,20 +1547,79 @@ const Scanner = {
     }
   },
 
-  async scanActiveTab() {
-    const tab = await Domain.getActiveTab();
-    if (!tab?.id || !this.isScannable(tab.url)) {
-      throw new Error("Cannot scan this page. Open a regular http(s) website and retry.");
-    }
-    const mainGlobals = await this.probeMainWorld(tab.id);
+  async ping(tabId) {
     const resp = await this.withTimeout(
-      chrome.tabs.sendMessage(tab.id, {
+      chrome.tabs.sendMessage(tabId, { type: "WEBLENS_PING" }),
+      this.PING_TIMEOUT_MS,
+      "ping-timeout"
+    );
+    if (!resp || !resp.ok) throw new Error("ping-failed");
+  },
+
+  // Tabs opened before install/update/reload have no content-script
+  // listener, so sendMessage fails with "Receiving end does not exist".
+  // Inject the same file stack on demand, then verify with a ping.
+  async ensureContentScripts(tabId) {
+    try {
+      await this.ping(tabId);
+      return; // static content script already running
+    } catch {
+      /* not injected yet — fall through to programmatic injection */
+    }
+    if (!chrome?.scripting?.executeScript) {
+      throw new Error("WebLens isn't running on this tab yet. Reload the page and retry.");
+    }
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        files: this.CONTENT_FILES,
+        world: "ISOLATED"
+      });
+    } catch (err) {
+      if (this.isRestrictedError(err)) {
+        throw new Error(
+          "Cannot scan this page — the browser blocks extensions here. Open a regular http(s) website and retry."
+        );
+      }
+      throw new Error("WebLens isn't running on this tab yet. Reload the page and retry.");
+    }
+    // Verify the fresh listener answers before the real scan runs.
+    try {
+      await this.ping(tabId);
+    } catch {
+      throw new Error("WebLens isn't running on this tab yet. Reload the page and retry.");
+    }
+  },
+
+  sendScan(tabId, mainGlobals) {
+    return this.withTimeout(
+      chrome.tabs.sendMessage(tabId, {
         type: "WEBLENS_SCAN",
         mainGlobals
       }),
       this.SCAN_TIMEOUT_MS,
       "Scan timed out. Reload the page and retry."
     );
+  },
+
+  async scanActiveTab() {
+    const tab = await Domain.getActiveTab();
+    if (!tab?.id || !this.isScannable(tab.url)) {
+      throw new Error("Cannot scan this page. Open a regular http(s) website and retry.");
+    }
+    const mainGlobals = await this.probeMainWorld(tab.id);
+    let resp;
+    try {
+      resp = await this.sendScan(tab.id, mainGlobals);
+    } catch (err) {
+      // First-attempt handshake failure almost always means the content
+      // script was never injected (stale tab). Inject + retry once before
+      // surfacing the raw Chrome error to the user.
+      if (!this.isReceivingEndError(err)) throw err;
+      console.warn("[WebLens] Content script missing, injecting on demand:", err);
+      await this.ensureContentScripts(tab.id);
+      resp = await this.sendScan(tab.id, mainGlobals);
+    }
     if (!resp) throw new Error("No response from page. Reload the page and retry.");
     if (!resp.ok) throw new Error(resp.error || "Page scan failed.");
     return Array.isArray(resp.technologies) ? resp.technologies : [];

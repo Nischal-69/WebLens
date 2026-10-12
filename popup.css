@@ -49,6 +49,11 @@ body.hide-confidence .conf { display: none; }
 
 * { box-sizing: border-box; }
 
+/* Hidden attribute must always win — author display rules (.state flex,
+   .results block, etc.) otherwise override the UA [hidden] style and show
+   loading + error states at the same time. */
+[hidden] { display: none !important; }
+
 html, body { margin: 0; padding: 0; }
 
 body {

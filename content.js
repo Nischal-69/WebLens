@@ -4,6 +4,13 @@
  * Listens for WEBLENS_SCAN, collects signals, runs engine, returns structured results.
  */
 (() => {
+  // Guard against double-injection: the popup may programatically inject
+  // these same files via chrome.scripting on tabs that pre-date install.
+  // Without this, a second listener would be registered and sendResponse
+  // would fire twice for a single scan.
+  if (window.__WEBLENS_CONTENT_READY__) return;
+  window.__WEBLENS_CONTENT_READY__ = true;
+
   function getApi() {
     return {
       Signals: window.WebLensSignals,
@@ -18,6 +25,12 @@
     init() {
       if (!chrome?.runtime?.onMessage) return;
       chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+        // Lightweight health check used by the popup to decide whether
+        // on-demand injection is needed. Must stay synchronous.
+        if (msg?.type === "WEBLENS_PING") {
+          sendResponse({ ok: true });
+          return false;
+        }
         if (msg?.type !== "WEBLENS_SCAN") return false;
         (async () => {
           try {
