@@ -8,7 +8,7 @@
 </head>
 <body>
   <div class="app">
-    <!-- Current website: favicon + domain + title + HTTPS + count -->
+    <!-- Current website: favicon + domain + status. Single status line. -->
     <section class="sitebar" aria-label="Current website">
       <span class="site-favicon" aria-hidden="true">
         <img id="siteFavicon" alt="" hidden />
@@ -20,52 +20,52 @@
       <div class="site-text">
         <div class="site-row">
           <span id="domainName" class="domain" title="Current site">…</span>
-          <span id="httpsBadge" class="https is-na" title="Connection status">…</span>
+          <button id="rescanBtn" type="button" class="rescan-btn" aria-label="Scan again" title="Scan again" hidden>
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 1.8v3h-3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
         </div>
-        <div id="pageTitle" class="page-title" title="">…</div>
         <div id="siteSubtitle" class="site-sub" role="status" aria-live="polite">Ready to scan</div>
       </div>
     </section>
 
-    <!-- Scan action -->
+    <!-- Scan action: single primary CTA, manual only -->
     <section class="controls">
       <button id="scanBtn" type="button" class="scan-btn">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
           <circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.6"/>
           <line x1="10.5" y1="10.5" x2="14" y2="14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
         </svg>
-        <span id="scanBtnLabel">Scan Website</span>
+        <span id="scanBtnLabel">Scan website</span>
       </button>
     </section>
 
-    <!-- Search toolbar -->
-    <section class="toolbar">
+    <!-- Search toolbar: shown only when results exist -->
+    <section class="toolbar" id="toolbar" hidden>
       <div class="search">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
           <circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.5"/>
           <line x1="10.6" y1="10.6" x2="14" y2="14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
         </svg>
-        <input id="searchInput" type="search" placeholder="Filter technologies…" aria-label="Filter technologies" autocomplete="off" />
+        <input id="searchInput" type="search" placeholder="Search tools…" aria-label="Search tools" autocomplete="off" />
       </div>
     </section>
 
-    <!-- Category filters -->
-    <div id="categoryFilters" class="filters" role="group" aria-label="Filter by category">
+    <!-- Category filters: shown only when results exist; only categories present -->
+    <div id="categoryFilters" class="filters" role="group" aria-label="Filter by category" hidden>
       <button type="button" class="filter-btn is-active" data-filter="All" aria-pressed="true">All</button>
-      <button type="button" class="filter-btn" data-filter="Frameworks" aria-pressed="false">Frameworks</button>
       <button type="button" class="filter-btn" data-filter="CMS" aria-pressed="false">CMS</button>
+      <button type="button" class="filter-btn" data-filter="Frameworks" aria-pressed="false">Frameworks</button>
       <button type="button" class="filter-btn" data-filter="Analytics" aria-pressed="false">Analytics</button>
-      <button type="button" class="filter-btn" data-filter="WordPress" aria-pressed="false">WordPress</button>
-      <button type="button" class="filter-btn" data-filter="Fonts" aria-pressed="false">Fonts</button>
-      <button type="button" class="filter-btn" data-filter="Infrastructure" aria-pressed="false">Infrastructure</button>
       <button type="button" class="filter-btn" data-filter="Other" aria-pressed="false">Other</button>
     </div>
 
     <!-- Export actions (visible only with scan results) -->
     <div id="exportBar" class="export-bar" hidden>
       <span class="export-label">Results</span>
-      <button id="copyBtn" type="button" class="ghost-btn">Copy Results</button>
-      <button id="exportJsonBtn" type="button" class="ghost-btn">Export JSON</button>
+      <button id="copyBtn" type="button" class="ghost-btn">Copy list</button>
+      <button id="exportJsonBtn" type="button" class="ghost-btn">JSON</button>
       <span id="exportStatus" class="export-status" role="status" aria-live="polite"></span>
     </div>
 
@@ -74,13 +74,13 @@
       <!-- Loading state -->
       <div id="loadingState" class="state loading" hidden>
         <span class="spinner" aria-hidden="true"></span>
-        <p class="state-title">Scanning website...</p>
-        <p class="state-sub">Inspecting scripts, meta tags and globals.</p>
+        <p class="state-title">Scanning website…</p>
+        <p class="state-sub">Checking what this site is built with.</p>
       </div>
 
-      <!-- Empty state -->
+      <!-- Empty / error state -->
       <div id="emptyState" class="state empty">
-        <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <svg id="emptyIcon" width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
           <rect x="4" y="4" width="24" height="17" rx="2" stroke="#94A3B8" stroke-width="1.6"/>
           <line x1="4" y1="9.5" x2="28" y2="9.5" stroke="#94A3B8" stroke-width="1.4"/>
           <circle cx="7" cy="7" r="1" fill="#94A3B8"/>
@@ -90,8 +90,9 @@
           <line x1="12" y1="25" x2="12" y2="28" stroke="#94A3B8" stroke-width="1.6" stroke-linecap="round"/>
           <line x1="8" y1="28" x2="16" y2="28" stroke="#94A3B8" stroke-width="1.6" stroke-linecap="round"/>
         </svg>
-        <p class="state-title">Ready to inspect this website</p>
-        <p class="state-sub">Run a scan to see what powers this site.</p>
+        <p class="state-title">See what this site is built with</p>
+        <p class="state-sub">Press Scan to check this page.</p>
+        <button id="emptyRetryBtn" type="button" class="retry-btn" hidden>Try again</button>
       </div>
 
       <!-- Technology results, grouped by category -->
@@ -105,9 +106,9 @@
           <line x1="11" y1="11" x2="17" y2="17" stroke="#94A3B8" stroke-width="1.4" stroke-linecap="round"/>
           <line x1="17" y1="11" x2="11" y2="17" stroke="#94A3B8" stroke-width="1.4" stroke-linecap="round"/>
         </svg>
-        <p class="no-match-title">No technologies match your filters</p>
-        <p class="no-match-sub">No matches for “<span id="noMatchQuery"></span>”<span id="noMatchFilter"></span>.</p>
-        <button id="clearFiltersBtn" type="button" class="link-btn">Clear search &amp; filters</button>
+        <p class="no-match-title">No matches</p>
+        <p class="no-match-sub">Nothing matches “<span id="noMatchQuery"></span>”<span id="noMatchFilter"></span>.</p>
+        <button id="clearFiltersBtn" type="button" class="link-btn">Clear search</button>
       </div>
 
       <!-- Technology detail view (inside popup) -->
@@ -123,52 +124,31 @@
           <div class="detail-title-wrap">
             <h2 id="detailName" class="detail-name">…</h2>
             <div class="detail-badges">
-              <span id="detailConf" class="conf conf-low">low</span>
               <span id="detailVer" class="tech-ver" hidden></span>
             </div>
           </div>
         </div>
         <dl class="detail-list">
           <div class="detail-row">
-            <dt>Category:</dt>
+            <dt>Type</dt>
             <dd id="detailCategory">…</dd>
           </div>
           <div class="detail-row" id="detailDescWrap">
-            <dt>Description:</dt>
+            <dt>About</dt>
             <dd id="detailDesc">…</dd>
           </div>
           <div class="detail-row">
-            <dt>Detected because:</dt>
+            <dt>Found in</dt>
             <dd id="detailReason">…</dd>
           </div>
           <div class="detail-row" id="detailWpWrap" hidden>
-            <dt>WordPress:</dt>
+            <dt>WordPress setup</dt>
             <dd id="detailWp">…</dd>
           </div>
         </dl>
         <a id="detailWebsite" class="site-btn" target="_blank" rel="noopener noreferrer" hidden>Visit official website</a>
       </section>
     </main>
-
-    <!-- Local scan history (chrome.storage.local only, never uploaded) -->
-    <section id="historySection" class="history" aria-label="Scan history" hidden>
-      <button id="historyToggle" type="button" class="history-toggle" aria-expanded="false" aria-controls="historyBody">
-        <span>History</span>
-        <span id="historyCount" class="history-count">0</span>
-      </button>
-      <div id="historyBody" class="history-body" hidden>
-        <div id="historyBanner" class="history-banner" hidden>
-          <span id="historyBannerText" class="history-banner-text"></span>
-          <button id="historyBackBtn" type="button" class="link-btn history-back">Back to live results</button>
-        </div>
-        <ul id="historyList" class="history-list"></ul>
-        <p id="historyEmpty" class="history-empty">No saved scans yet.</p>
-        <div class="history-actions">
-          <button id="clearHistoryBtn" type="button" class="ghost-btn danger">Clear History</button>
-          <span id="historyStatus" class="export-status" role="status" aria-live="polite"></span>
-        </div>
-      </div>
-    </section>
 
     <!-- Settings (local only, stored in chrome.storage.local) -->
     <section id="settingsSection" class="settings" aria-label="Settings">
@@ -184,40 +164,11 @@
             <option value="dark">Dark</option>
           </select>
         </label>
-        <div class="setting-row">
-          <span class="setting-label" id="autoScanLabel">Automatically scan on popup open</span>
-          <button id="autoScanToggle" type="button" class="switch" role="switch" aria-checked="false" aria-labelledby="autoScanLabel">
-            <span class="switch-state">Off</span>
-          </button>
-        </div>
-        <div class="setting-row">
-          <span class="setting-label" id="confToggleLabel">Show confidence levels</span>
-          <button id="confToggle" type="button" class="switch" role="switch" aria-checked="true" aria-labelledby="confToggleLabel">
-            <span class="switch-state">On</span>
-          </button>
-        </div>
-        <div class="setting-row">
-          <span class="setting-label" id="histToggleLabel">Store scan history</span>
-          <button id="histToggle" type="button" class="switch" role="switch" aria-checked="true" aria-labelledby="histToggleLabel">
-            <span class="switch-state">On</span>
-          </button>
-        </div>
-        <div class="setting-row">
-          <button id="settingsClearHistoryBtn" type="button" class="ghost-btn danger">Clear history</button>
-          <span id="settingsStatus" class="export-status" role="status" aria-live="polite"></span>
-        </div>
         <div class="about">
           <strong class="about-name">WebLens</strong>
           <span class="about-tag">See what powers the web.</span>
           <span id="aboutVersion" class="about-ver">Version …</span>
-          <ul class="privacy-list" aria-label="Privacy at a glance">
-            <li>Detection runs locally in your browser</li>
-            <li>No browsing history collected</li>
-            <li>No data sold or shared</li>
-            <li>No ads injected</li>
-            <li>Nothing sent to external servers</li>
-          </ul>
-          <p class="privacy-note">History and settings stay in on-device storage. Clear them anytime in History and Settings.</p>
+          <p class="privacy-note">Everything runs on your device. Nothing is sent anywhere.</p>
         </div>
       </div>
     </section>

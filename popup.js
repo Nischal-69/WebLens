@@ -1,19 +1,20 @@
 /**
  * WebLens — popup.js
  * Popup UI controller + scan orchestration (detection engine v1).
+ * Simplified for general users: manual scan, single status line,
+ * plain-language results (name + type + version), slim detail view.
  *
  * Modules:
  *   Store    -> { status, technologies[], filter, activeCategory, notice }
  *   Elements -> DOM cache
- *   Site     -> active-tab favicon + domain + title + HTTPS display
- *   Status   -> idle | scanning | done | error (scan button + subtitle)
+ *   Site     -> active-tab favicon + domain display
+ *   Status   -> idle | scanning | done | error (single CTA + status line)
  *   Results  -> render structured technologies [{name,category,description,
- *               confidence,score,detectedBy,website,logo,version}]
+ *               version,website,slug}]
  *   Detail   -> in-popup technology detail view (open / close / fill)
- *   Search   -> client-side filter
+ *   Search   -> client-side filter (visible only with results)
  *   Export   -> local-only copy results + JSON download (no network)
- *   History  -> local scan history in chrome.storage.local (never uploaded)
- *   Settings -> local settings: theme, auto-scan, confidence, history (never uploaded)
+ *   Settings -> local theme setting (never uploaded)
  *   Scanner  -> MAIN probe + content-script messaging (no backend)
  *   Actions  -> Scan button handler
  */
@@ -23,9 +24,8 @@ const Store = {
   status: "idle", // idle | scanning | done | error
   technologies: [],
   filter: "",
-  activeCategory: "All", // All | Frameworks | CMS | Analytics | WordPress | Fonts | Infrastructure | Other
+  activeCategory: "All", // All | CMS | Frameworks | Analytics | Other
   selectedSlug: null, // slug of technology shown in the detail view, or null
-  viewingHistoryId: null, // id of open history snapshot, or null for live results
   notice: "" // e.g. "Cannot scan this page" / error text
 };
 
@@ -35,17 +35,18 @@ const Elements = {
   cache() {
     const ids = [
       "domainName",
-      "pageTitle",
       "siteSubtitle",
       "siteFavicon",
       "siteFallback",
-      "httpsBadge",
+      "rescanBtn",
       "scanBtn",
       "scanBtnLabel",
+      "toolbar",
       "searchInput",
       "categoryFilters",
       "loadingState",
       "emptyState",
+      "emptyRetryBtn",
       "resultsList",
       "noMatch",
       "noMatchQuery",
@@ -55,7 +56,6 @@ const Elements = {
       "backBtn",
       "detailIcon",
       "detailName",
-      "detailConf",
       "detailVer",
       "detailCategory",
       "detailDescWrap",
@@ -68,26 +68,10 @@ const Elements = {
       "copyBtn",
       "exportJsonBtn",
       "exportStatus",
-      "historySection",
-      "historyToggle",
-      "historyCount",
-      "historyBody",
-      "historyBanner",
-      "historyBannerText",
-      "historyBackBtn",
-      "historyList",
-      "historyEmpty",
-      "clearHistoryBtn",
-      "historyStatus",
       "settingsSection",
       "settingsToggle",
       "settingsBody",
       "themeSelect",
-      "autoScanToggle",
-      "confToggle",
-      "histToggle",
-      "settingsClearHistoryBtn",
-      "settingsStatus",
       "aboutVersion"
     ];
     for (const id of ids) this.els[id] = document.getElementById(id);
@@ -98,7 +82,7 @@ const Elements = {
 };
 
 // ---------- Site ----------
-// Compact top section: favicon + domain + page title + HTTPS badge.
+// Compact top section: favicon + domain + single status line.
 // Single active-tab query; pure display, never triggers a scan.
 const Site = {
   async getActiveTab() {
@@ -132,49 +116,15 @@ const Site = {
     }
   },
 
-  setHttps(url) {
-    const badge = Elements.get("httpsBadge");
-    if (!badge) return;
-    let protocol = "";
-    try {
-      protocol = new URL(url).protocol || "";
-    } catch {
-      protocol = "";
-    }
-    const LOCK =
-      '<svg width="10" height="10" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><rect x="3.5" y="7" width="9" height="6.5" rx="1.2" stroke="currentColor" stroke-width="1.5"/><path d="M5.5 7V5.5a2.5 2.5 0 0 1 5 0V7" stroke="currentColor" stroke-width="1.5"/></svg>';
-    const WARN =
-      '<svg width="10" height="10" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M8 2 14.5 13.5h-13L8 2Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><line x1="8" y1="6.5" x2="8" y2="9.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="11.5" r="0.9" fill="currentColor"/></svg>';
-    if (protocol === "https:") {
-      badge.className = "https is-secure";
-      badge.title = "Secure HTTPS connection";
-      badge.innerHTML = `${LOCK}<span>Secure</span>`;
-    } else if (protocol === "http:") {
-      badge.className = "https is-insecure";
-      badge.title = "Not secure — plain HTTP";
-      badge.innerHTML = `${WARN}<span>Not secure</span>`;
-    } else {
-      badge.className = "https is-na";
-      badge.title = "Local or browser page";
-      badge.textContent = "Local page";
-    }
-  },
-
   async resolve() {
     const domain = Elements.get("domainName");
-    const title = Elements.get("pageTitle");
     const tab = await this.getActiveTab();
     if (!tab?.url) {
       if (domain) {
         domain.textContent = "unknown site";
         domain.title = "Current site";
       }
-      if (title) {
-        title.textContent = "";
-        title.title = "";
-      }
       this.setFavicon("");
-      this.setHttps("");
       return tab;
     }
     let hostname = "unknown site";
@@ -187,13 +137,7 @@ const Site = {
       domain.textContent = hostname;
       domain.title = tab.url;
     }
-    const pageTitle = typeof tab.title === "string" ? tab.title.trim() : "";
-    if (title) {
-      title.textContent = pageTitle;
-      title.title = pageTitle;
-    }
     this.setFavicon(tab.favIconUrl || "");
-    this.setHttps(tab.url);
     return tab;
   }
 };
@@ -202,11 +146,14 @@ const Site = {
 const Domain = Site;
 
 // ---------- Status ----------
+// Single CTA with two labels only (manual scan): "Scan website" / "Scanning…".
+// The header re-scan icon mirrors the same state for quick re-scans.
 const Status = {
   set(next) {
     Store.status = next;
     const btn = Elements.get("scanBtn");
     const label = Elements.get("scanBtnLabel");
+    const rescan = Elements.get("rescanBtn");
 
     if (next === "scanning") {
       if (label) label.textContent = "Scanning…";
@@ -214,18 +161,23 @@ const Status = {
         btn.disabled = true;
         btn.setAttribute("aria-busy", "true");
       }
+      if (rescan) {
+        rescan.hidden = true;
+        rescan.disabled = true;
+      }
     } else {
       if (btn) {
         btn.disabled = false;
         btn.removeAttribute("aria-busy");
       }
-      if (label) {
-        if (next === "error") label.textContent = "Retry Scan";
-        else if (Store.technologies.length > 0) label.textContent = "Scan Again";
-        else label.textContent = "Scan Website";
+      if (label) label.textContent = "Scan website";
+      if (rescan) {
+        const hasResults = (Store.technologies || []).length > 0;
+        rescan.hidden = !(next === "done" && hasResults);
+        rescan.disabled = false;
       }
     }
-    // Keep the count subtitle in sync (e.g. button-only transitions).
+    // Keep the single status line in sync (e.g. button-only transitions).
     try {
       Results.updateSubtitle(Results.lastVisibleCount ?? Store.technologies.length);
     } catch {
@@ -235,17 +187,16 @@ const Status = {
 };
 
 // ---------- CategoryFilters ----------
-// Simplified UI taxonomy (8 pills) mapped onto canonical categories.
+// Small fixed taxonomy (5 pills max) mapped onto canonical categories.
+// WordPress counts as CMS; Fonts / CDN / Hosting / servers count as Other.
+// Pills render only when results exist, and only for categories present.
 // Instant client-side filtering only — never triggers a rescan.
 const CategoryFilters = {
   FILTER_MAP: {
     All: null,
+    CMS: ["CMS", "WordPress"],
     Frameworks: ["Frameworks"],
-    CMS: ["CMS"],
-    Analytics: ["Analytics"],
-    WordPress: ["WordPress"],
-    Fonts: ["Fonts"],
-    Infrastructure: ["CDN", "Hosting", "Web Server", "Security"]
+    Analytics: ["Analytics"]
     // Other is handled as catch-all negation in matches().
   },
 
@@ -253,22 +204,27 @@ const CategoryFilters = {
     return Store.activeCategory && Store.activeCategory !== "All";
   },
 
+  // Canonical category -> simplified pill bucket.
+  bucketOf(category) {
+    if (category === "CMS" || category === "WordPress") return "CMS";
+    if (category === "Frameworks") return "Frameworks";
+    if (category === "Analytics") return "Analytics";
+    return "Other";
+  },
+
+  // Buckets present in the current result set (for dynamic pills).
+  visibleBuckets() {
+    const seen = new Set();
+    for (const t of Store.technologies || []) seen.add(this.bucketOf(t.category || "Other"));
+    return ["All", "CMS", "Frameworks", "Analytics", "Other"].filter(
+      (b) => b === "All" || seen.has(b)
+    );
+  },
+
   matches(tech) {
     const active = Store.activeCategory || "All";
     if (active === "All") return true;
-    const category = tech.category || "Other";
-    if (active === "Other") {
-      // Catch-all: anything not covered by the 6 explicit buckets.
-      const covered = new Set();
-      for (const [key, cats] of Object.entries(this.FILTER_MAP)) {
-        if (key === "All") continue;
-        for (const c of cats || []) covered.add(c);
-      }
-      return !covered.has(category);
-    }
-    const allowed = this.FILTER_MAP[active];
-    if (!allowed) return true;
-    return allowed.includes(category);
+    return this.bucketOf(tech.category || "Other") === active;
   },
 
   init() {
@@ -291,9 +247,12 @@ const CategoryFilters = {
   syncUI() {
     const bar = Elements.get("categoryFilters");
     if (!bar) return;
+    const visible = new Set(this.visibleBuckets());
     const buttons = bar.querySelectorAll("[data-filter]");
     for (const btn of buttons) {
-      const on = btn.dataset.filter === Store.activeCategory;
+      const bucket = btn.dataset.filter;
+      btn.hidden = !visible.has(bucket);
+      const on = bucket === Store.activeCategory;
       btn.classList.toggle("is-active", on);
       btn.setAttribute("aria-pressed", on ? "true" : "false");
     }
@@ -302,6 +261,23 @@ const CategoryFilters = {
   reset() {
     Store.activeCategory = "All";
     this.syncUI();
+  }
+};
+
+// ---------- Toolbar ----------
+// Search + filters are progressive disclosure: hidden until results exist,
+// so first-run users face one CTA, not pills + search + settings.
+const Toolbar = {
+  sync() {
+    const hasResults =
+      Store.status === "done" && (Store.technologies || []).length > 0;
+    const toolbar = Elements.get("toolbar");
+    const bar = Elements.get("categoryFilters");
+    if (toolbar) toolbar.hidden = !hasResults;
+    if (bar) {
+      bar.hidden = !hasResults;
+      if (hasResults) CategoryFilters.syncUI();
+    }
   }
 };
 
@@ -375,6 +351,23 @@ const Detail = {
     }
   },
 
+  // Plain-language evidence for general users (no channel codes/scores).
+  plainEvidence(detectedBy) {
+    const MAP = {
+      global: "page code",
+      "script-url": "page code",
+      html: "page code",
+      "stylesheet-url": "page styles",
+      meta: "site settings",
+      dom: "page structure",
+      cookie: "cookies"
+    };
+    const parts = [...new Set((detectedBy || []).map((k) => MAP[k]).filter(Boolean))];
+    if (parts.length === 0) return "";
+    if (parts.length === 1) return `Found in ${parts[0]}.`;
+    return `Found in ${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}.`;
+  },
+
   fill(tech) {
     const icon = Elements.get("detailIcon");
     if (icon) {
@@ -394,13 +387,6 @@ const Detail = {
     if (name) {
       name.textContent = tech.name;
       name.title = tech.description || tech.name;
-    }
-    const conf = Elements.get("detailConf");
-    if (conf) {
-      const level = tech.confidence || "low";
-      conf.className = `conf conf-${level}`;
-      conf.textContent = level;
-      conf.title = `Confidence: ${level} (${(tech.detectedBy || []).join(", ") || "n/a"}) · score ${typeof tech.score === "number" ? tech.score : "n/a"}`;
     }
     const ver = Elements.get("detailVer");
     if (ver) {
@@ -423,12 +409,12 @@ const Detail = {
     if (reason) {
       let sentence = "";
       try {
-        sentence = Results.evidenceSentence(tech.detectedBy);
+        sentence = this.plainEvidence(tech.detectedBy);
       } catch {
         sentence = "";
       }
       reason.textContent =
-        sentence || "Signals matched this technology's detection rules.";
+        sentence || "Matched this technology's signals on this page.";
     }
     // WordPress extras (theme / plugins) when present.
     const wpWrap = Elements.get("detailWpWrap");
@@ -517,9 +503,9 @@ const Results = {
           /* export bar optional */
         }
         try {
-          History.syncBanner();
+          Toolbar.sync();
         } catch {
-          /* history banner optional */
+          /* toolbar optional */
         }
         return;
       }
@@ -529,15 +515,28 @@ const Results = {
     if (detailView) detailView.hidden = true;
     loading.hidden = !isScanning;
 
-    // Empty state doubles as error/unsupported notice.
+    // One state at a time: error / zero-found / idle onboarding.
     const emptyTitle = empty.querySelector(".state-title");
     const emptySub = empty.querySelector(".state-sub");
-    if (Store.status === "error" && Store.notice) {
-      if (emptyTitle) emptyTitle.textContent = "Scan unavailable";
-      if (emptySub) emptySub.textContent = Store.notice;
+    const retryBtn = Elements.get("emptyRetryBtn");
+    const isError = Store.status === "error";
+    const isDoneEmpty =
+      Store.status === "done" && (Store.technologies || []).length === 0;
+    if (isError) {
+      if (emptyTitle) emptyTitle.textContent = "Couldn't scan this page";
+      if (emptySub) emptySub.textContent = Store.notice || "Something went wrong.";
+      if (retryBtn) retryBtn.hidden = false;
+      empty.classList.add("is-error");
+    } else if (isDoneEmpty) {
+      if (emptyTitle) emptyTitle.textContent = "No familiar tools found";
+      if (emptySub) emptySub.textContent = "This page doesn't seem to use tools we recognize.";
+      if (retryBtn) retryBtn.hidden = true;
+      empty.classList.remove("is-error");
     } else {
-      if (emptyTitle) emptyTitle.textContent = "Ready to inspect this website";
-      if (emptySub) emptySub.textContent = "Run a scan to see what powers this site.";
+      if (emptyTitle) emptyTitle.textContent = "See what this site is built with";
+      if (emptySub) emptySub.textContent = "Press Scan to check this page.";
+      if (retryBtn) retryBtn.hidden = true;
+      empty.classList.remove("is-error");
     }
 
     empty.hidden = isScanning || items.length > 0 || query.length > 0 || categoryActive;
@@ -557,9 +556,9 @@ const Results = {
       /* export bar optional */
     }
     try {
-      History.syncBanner();
+      Toolbar.sync();
     } catch {
-      /* history banner optional */
+      /* toolbar optional */
     }
   },
 
@@ -587,25 +586,6 @@ const Results = {
     return h;
   },
 
-  // Human-readable evidence sentence, e.g. "Detected from page globals and scripts."
-  evidenceSentence(detectedBy) {
-    const LABELS = {
-      global: "page globals",
-      "script-url": "scripts",
-      "stylesheet-url": "stylesheets",
-      meta: "meta tags",
-      dom: "DOM signals",
-      cookie: "cookies",
-      html: "page markup"
-    };
-    const parts = [...new Set(detectedBy || [])]
-      .map((k) => LABELS[k])
-      .filter(Boolean);
-    if (parts.length === 0) return "";
-    if (parts.length === 1) return `Detected from ${parts[0]}.`;
-    return `Detected from ${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}.`;
-  },
-
   iconFor(category) {
     try {
       const api = window.WebLensIcons;
@@ -617,6 +597,8 @@ const Results = {
   },
 
   row(tech) {
+    // Slim single-target row: icon + name + type + optional version.
+    // Details (description, evidence, links) live in the detail view.
     const li = document.createElement("div");
     li.className = "tech";
     li.setAttribute("role", "button");
@@ -633,92 +615,16 @@ const Results = {
     const meta = document.createElement("div");
     meta.className = "tech-meta";
 
-    const topRow = document.createElement("div");
-    topRow.className = "tech-top";
-
     const name = document.createElement("span");
     name.className = "tech-name";
-    if (tech.website) {
-      const link = document.createElement("a");
-      link.href = tech.website;
-      link.target = "_blank";
-      link.rel = "noopener noreferrer";
-      link.textContent = tech.name;
-      link.className = "tech-link";
-      link.title = tech.description || tech.website;
-      name.appendChild(link);
-      const globe = document.createElement("span");
-      globe.className = "ext-link";
-      globe.setAttribute("aria-hidden", "true");
-      try {
-        const api = window.WebLensIcons;
-        if (api && typeof api.extLink === "function") globe.innerHTML = api.extLink();
-      } catch {
-        /* icon optional */
-      }
-      name.appendChild(globe);
-    } else {
-      name.textContent = tech.name;
-      if (tech.description) name.title = tech.description;
-    }
+    name.textContent = tech.name;
+    if (tech.description) name.title = tech.description;
 
-    const conf = document.createElement("span");
-    conf.className = `conf conf-${tech.confidence || "low"}`;
-    conf.textContent = tech.confidence || "low";
-    conf.title = `Confidence: ${tech.confidence || "low"} (${(tech.detectedBy || []).join(", ") || "n/a"})`;
+    const cat = document.createElement("span");
+    cat.className = "tech-category";
+    cat.textContent = tech.category || "Other";
 
-    topRow.append(name, conf);
-
-    meta.appendChild(topRow);
-
-    if (tech.description) {
-      const desc = document.createElement("span");
-      desc.className = "tech-desc";
-      desc.textContent = tech.description;
-      desc.title = tech.description;
-      meta.appendChild(desc);
-    }
-
-    const evidence = this.evidenceSentence(tech.detectedBy);
-    if (evidence) {
-      const ev = document.createElement("span");
-      ev.className = "tech-evidence";
-      ev.textContent = evidence;
-      meta.appendChild(ev);
-    }
-
-    // WordPress theme/plugin sub-block (passive extras only).
-    if (tech.slug === "wordpress" && tech.details) {
-      const { theme, plugins } = tech.details;
-      if (theme?.name) {
-        const tRow = document.createElement("span");
-        tRow.className = "wp-sub";
-        const tLabel = document.createElement("span");
-        tLabel.className = "wp-label";
-        tLabel.textContent = "Theme: ";
-        const tName = document.createElement("span");
-        tName.className = "wp-val";
-        tName.textContent = theme.name;
-        tName.title = `Theme slug: ${theme.slug} (${theme.evidence} ref${theme.evidence === 1 ? "" : "s"})`;
-        tRow.append(tLabel, tName);
-        meta.appendChild(tRow);
-      }
-      if (Array.isArray(plugins) && plugins.length > 0) {
-        const pRow = document.createElement("span");
-        pRow.className = "wp-sub";
-        const pLabel = document.createElement("span");
-        pLabel.className = "wp-label";
-        pLabel.textContent = "Plugins: ";
-        const pVals = document.createElement("span");
-        pVals.className = "wp-val";
-        const names = plugins.map((p) => p.name);
-        pVals.textContent = names.join(", ");
-        pVals.title = plugins.map((p) => `${p.name} (${p.evidence})`).join(", ");
-        pRow.append(pLabel, pVals);
-        meta.appendChild(pRow);
-      }
-    }
-
+    meta.append(name, cat);
     li.append(icon, meta);
 
     if (tech.version) {
@@ -736,17 +642,9 @@ const Results = {
       '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
     li.append(chev);
 
-    // Whole row opens the detail view; the inline website link keeps
-    // working and must not trigger the detail view.
-    li.addEventListener("click", (e) => {
-      const anchor = e.target?.closest?.("a");
-      if (anchor && li.contains(anchor)) return;
-      Detail.open(tech.slug);
-    });
+    li.addEventListener("click", () => Detail.open(tech.slug));
     li.addEventListener("keydown", (e) => {
       if (e.key === "Enter" || e.key === " ") {
-        const anchor = e.target?.closest?.("a");
-        if (anchor && li.contains(anchor)) return;
         e.preventDefault();
         Detail.open(tech.slug);
       }
@@ -754,29 +652,28 @@ const Results = {
     return li;
   },
 
+  // Single status line: one string per state, plain words.
   updateSubtitle(n) {
     this.lastVisibleCount = n;
     const sub = Elements.get("siteSubtitle");
     if (!sub) return;
     if (Store.status === "scanning") {
-      sub.textContent = "Scanning website...";
+      sub.textContent = "Scanning…";
       return;
     }
     if (Store.status === "error") {
-      sub.textContent = Store.notice || "Scan failed";
+      sub.textContent = Store.notice || "Couldn't scan this page";
       return;
     }
     if (Store.technologies.length === 0) {
-      sub.textContent = "Ready to inspect this website";
+      sub.textContent = "Ready — press Scan";
       return;
     }
     if (n === 0) {
       sub.textContent = "No matches for current filters";
       return;
     }
-    const base =
-      n === 1 ? "1 technology detected" : `${n} technologies detected`;
-    sub.textContent = Store.viewingHistoryId ? `History · ${base}` : base;
+    sub.textContent = n === 1 ? "1 tool found" : `${n} tools found`;
   },
 
   updateNoMatch(visibleCount, query) {
@@ -793,7 +690,7 @@ const Results = {
       Store.status !== "scanning";
     noMatch.hidden = !show;
     if (!show) return;
-    if (q) q.textContent = hasQuery ? Store.filter.trim() : "all technologies";
+    if (q) q.textContent = hasQuery ? Store.filter.trim() : "these filters";
     if (f) {
       if (hasQuery && hasCategory) f.textContent = ` in ${Store.activeCategory}`;
       else if (hasCategory) f.textContent = ` in ${Store.activeCategory}`;
@@ -853,12 +750,11 @@ const Export = {
   },
 
   pageTitle() {
-    const el = Elements.get("pageTitle");
-    return el ? el.textContent.trim() : "";
+    return "";
   },
 
   formatText() {
-    const lines = [`Website: ${this.domain()}`, "", "Technologies:", ""];
+    const lines = [`Website: ${this.domain()}`, "", "Tools:", ""];
     for (const t of Store.technologies || []) lines.push(`* ${t.name}`);
     return lines.join("\n");
   },
@@ -867,7 +763,6 @@ const Export = {
     return {
       website: this.domain(),
       url: this.pageUrl(),
-      pageTitle: this.pageTitle(),
       scannedAt: new Date().toISOString(),
       count: (Store.technologies || []).length,
       technologies: (Store.technologies || []).map((t) => {
@@ -876,9 +771,6 @@ const Export = {
           name: t.name,
           category: t.category || "Other",
           description: t.description || "",
-          confidence: t.confidence || "low",
-          score: typeof t.score === "number" ? t.score : null,
-          detectedBy: t.detectedBy || [],
           website: t.website || null,
           version: t.version || null
         };
@@ -982,16 +874,11 @@ const Export = {
 };
 
 // ---------- Settings ----------
-// Simple local settings. Stored ONLY in chrome.storage.local under a single
-// key — never sent anywhere. Defaults: system theme, no auto-scan,
-// confidence shown, history stored.
+// Theme only, stored ONLY in chrome.storage.local — never sent anywhere.
 const Settings = {
   KEY: "weblens.settings.v1",
   DEFAULTS: {
-    theme: "system", // system | light | dark
-    autoScan: false,
-    showConfidence: true,
-    storeHistory: true
+    theme: "system" // system | light | dark
   },
   values: null, // merged settings once loaded
   loaded: false,
@@ -1015,9 +902,6 @@ const Settings = {
     const out = { ...this.DEFAULTS };
     if (!raw || typeof raw !== "object") return out;
     if (["system", "light", "dark"].includes(raw.theme)) out.theme = raw.theme;
-    for (const key of ["autoScan", "showConfidence", "storeHistory"]) {
-      if (typeof raw[key] === "boolean") out[key] = raw[key];
-    }
     return out;
   },
 
@@ -1057,7 +941,6 @@ const Settings = {
 
   applyAll() {
     this.applyTheme();
-    this.applyConfidence();
   },
 
   applyTheme() {
@@ -1082,41 +965,9 @@ const Settings = {
     else root.removeAttribute("data-theme");
   },
 
-  applyConfidence() {
-    try {
-      document.body.classList.toggle("hide-confidence", !this.get("showConfidence"));
-    } catch {
-      /* body optional */
-    }
-  },
-
-  setSwitch(btn, on) {
-    if (!btn) return;
-    btn.setAttribute("aria-checked", on ? "true" : "false");
-    const state = btn.querySelector(".switch-state");
-    if (state) state.textContent = on ? "On" : "Off";
-  },
-
   syncUI() {
     const theme = Elements.get("themeSelect");
     if (theme) theme.value = this.get("theme");
-    this.setSwitch(Elements.get("autoScanToggle"), this.get("autoScan"));
-    this.setSwitch(Elements.get("confToggle"), this.get("showConfidence"));
-    this.setSwitch(Elements.get("histToggle"), this.get("storeHistory"));
-  },
-
-  setStatus(text, ok) {
-    const el = Elements.get("settingsStatus");
-    if (!el) return;
-    el.textContent = text;
-    el.classList.toggle("is-ok", !!ok);
-    setTimeout(() => {
-      const cur = Elements.get("settingsStatus");
-      if (cur && cur.textContent === text) {
-        cur.textContent = "";
-        cur.classList.remove("is-ok");
-      }
-    }, 2500);
   },
 
   fillAbout() {
@@ -1144,288 +995,7 @@ const Settings = {
     if (theme) {
       theme.addEventListener("change", () => this.set("theme", theme.value));
     }
-    const wire = (id, name) => {
-      const btn = Elements.get(id);
-      if (btn) btn.addEventListener("click", () => this.set(name, !this.get(name)));
-    };
-    wire("autoScanToggle", "autoScan");
-    wire("confToggle", "showConfidence");
-    wire("histToggle", "storeHistory");
-    const clear = Elements.get("settingsClearHistoryBtn");
-    if (clear) {
-      clear.addEventListener("click", async () => {
-        try {
-          await History.clear();
-          this.setStatus("History cleared", true);
-        } catch (err) {
-          console.warn("[WebLens] Clear from settings failed:", err);
-          this.setStatus("Clear failed", false);
-        }
-      });
-    }
     this.fillAbout();
-  }
-};
-
-// ---------- History ----------
-// Local scan history. Stored ONLY in chrome.storage.local under a single
-// key — never sent anywhere (no fetch/XHR in this file). Newest first,
-// capped at MAX entries with oldest pruned.
-const History = {
-  KEY: "weblens.history.v1",
-  MAX: 20,
-  _entries: [],
-  _expanded: false,
-
-  available() {
-    try {
-      return !!(chrome?.storage?.local?.get && chrome?.storage?.local?.set);
-    } catch {
-      return false;
-    }
-  },
-
-  makeId() {
-    try {
-      if (crypto?.randomUUID) return crypto.randomUUID();
-    } catch {
-      /* fall through */
-    }
-    return `scan-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
-  },
-
-  formatDate(iso) {
-    try {
-      const d = new Date(iso);
-      if (Number.isNaN(d.getTime())) return String(iso || "");
-      return d.toLocaleString(undefined, {
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit"
-      });
-    } catch {
-      return String(iso || "");
-    }
-  },
-
-  async init() {
-    const section = Elements.get("historySection");
-    if (!section) return;
-    if (!this.available()) {
-      section.hidden = true;
-      return;
-    }
-    section.hidden = false;
-    const toggle = Elements.get("historyToggle");
-    if (toggle) toggle.addEventListener("click", () => this.toggle());
-    const back = Elements.get("historyBackBtn");
-    if (back) back.addEventListener("click", () => this.backToLive());
-    const clear = Elements.get("clearHistoryBtn");
-    if (clear) clear.addEventListener("click", () => this.clear());
-    await this.load();
-  },
-
-  toggle() {
-    this._expanded = !this._expanded;
-    const body = Elements.get("historyBody");
-    const toggle = Elements.get("historyToggle");
-    if (body) body.hidden = !this._expanded;
-    if (toggle) toggle.setAttribute("aria-expanded", this._expanded ? "true" : "false");
-  },
-
-  async load() {
-    if (!this.available()) return [];
-    try {
-      const res = await chrome.storage.local.get(this.KEY);
-      const list = res?.[this.KEY];
-      this._entries = Array.isArray(list) ? list : [];
-    } catch (err) {
-      console.warn("[WebLens] History load failed:", err);
-      this._entries = [];
-    }
-    this.render();
-    return this._entries;
-  },
-
-  async persist() {
-    await chrome.storage.local.set({ [this.KEY]: this._entries.slice(0, this.MAX) });
-  },
-
-  // Fire-and-forget from the scan success path — never blocks rendering.
-  // Honors the "Store scan history" setting; existing entries are kept.
-  save(entry) {
-    if (!this.available()) return;
-    try {
-      if (typeof Settings !== "undefined" && Settings.loaded && !Settings.get("storeHistory")) return;
-    } catch {
-      /* settings optional — default to saving */
-    }
-    try {
-      this._entries = [entry, ...this._entries].slice(0, this.MAX);
-      this.render();
-      this.persist().catch((err) => {
-        // Quota pressure: drop oldest and retry once, else warn only.
-        console.warn("[WebLens] History persist failed, pruning:", err);
-        try {
-          this._entries = this._entries.slice(0, Math.max(1, this.MAX - 5));
-          this.render();
-          this.persist().catch((retryErr) => {
-            console.warn("[WebLens] History persist retry failed:", retryErr);
-          });
-        } catch {
-          /* storage must never break scanning */
-        }
-      });
-    } catch (err) {
-      console.warn("[WebLens] History save failed:", err);
-    }
-  },
-
-  snapshot(domain, url, pageTitle, technologies) {
-    return {
-      id: this.makeId(),
-      domain: domain || "unknown site",
-      url: url || "",
-      pageTitle: pageTitle || "",
-      scannedAt: new Date().toISOString(),
-      count: (technologies || []).length,
-      technologies: Array.isArray(technologies) ? technologies : []
-    };
-  },
-
-  open(id) {
-    const entry = this._entries.find((e) => e.id === id);
-    if (!entry) return;
-    Detail.closeSilent();
-    Search.clear();
-    CategoryFilters.reset();
-    Store.notice = "";
-    Store.technologies = Array.isArray(entry.technologies) ? entry.technologies : [];
-    Store.viewingHistoryId = entry.id;
-    Store.status = "done";
-    try {
-      Status.set("done");
-    } catch {
-      /* subtitle sync optional */
-    }
-    Results.render();
-    this.syncBanner();
-  },
-
-  backToLive() {
-    if (!Store.viewingHistoryId) return;
-    Store.viewingHistoryId = null;
-    Detail.closeSilent();
-    Search.clear();
-    CategoryFilters.reset();
-    Store.notice = "";
-    Store.technologies = [];
-    try {
-      Status.set("idle");
-    } catch {
-      Store.status = "idle";
-    }
-    Results.render();
-    this.syncBanner();
-  },
-
-  async clear() {
-    if (!this.available()) return;
-    const wasViewing = !!Store.viewingHistoryId;
-    try {
-      await chrome.storage.local.remove(this.KEY);
-    } catch (err) {
-      console.warn("[WebLens] History clear failed:", err);
-      this.setStatus("Clear failed", false);
-      return;
-    }
-    this._entries = [];
-    if (wasViewing) {
-      Store.viewingHistoryId = null;
-      Detail.closeSilent();
-      Store.technologies = [];
-      Store.notice = "";
-      try {
-        Status.set("idle");
-      } catch {
-        Store.status = "idle";
-      }
-    }
-    this.render();
-    Results.render();
-    this.setStatus("History cleared", true);
-  },
-
-  setStatus(text, ok) {
-    const el = Elements.get("historyStatus");
-    if (!el) return;
-    el.textContent = text;
-    el.classList.toggle("is-ok", !!ok);
-    setTimeout(() => {
-      const cur = Elements.get("historyStatus");
-      if (cur && cur.textContent === text) {
-        cur.textContent = "";
-        cur.classList.remove("is-ok");
-      }
-    }, 2500);
-  },
-
-  syncBanner() {
-    const banner = Elements.get("historyBanner");
-    const text = Elements.get("historyBannerText");
-    if (!banner) return;
-    const entry = Store.viewingHistoryId
-      ? this._entries.find((e) => e.id === Store.viewingHistoryId)
-      : null;
-    if (!entry) {
-      banner.hidden = true;
-      if (text) text.textContent = "";
-      return;
-    }
-    banner.hidden = false;
-    if (text) text.textContent = `${entry.domain} · ${this.formatDate(entry.scannedAt)} · ${entry.count} tech`;
-  },
-
-  render() {
-    const count = Elements.get("historyCount");
-    if (count) count.textContent = String(this._entries.length);
-    const list = Elements.get("historyList");
-    const empty = Elements.get("historyEmpty");
-    const clear = Elements.get("clearHistoryBtn");
-    if (!list) return;
-    list.innerHTML = "";
-    const has = this._entries.length > 0;
-    if (empty) empty.hidden = has;
-    if (clear) clear.disabled = !has;
-    for (const entry of this._entries) {
-      const li = document.createElement("li");
-      li.className = "history-item";
-
-      const main = document.createElement("button");
-      main.type = "button";
-      main.className = "history-open";
-      const title = document.createElement("span");
-      title.className = "history-domain";
-      title.textContent = entry.domain || "unknown site";
-      title.title = entry.url || entry.domain || "";
-      const meta = document.createElement("span");
-      meta.className = "history-meta";
-      const n = typeof entry.count === "number" ? entry.count : (entry.technologies || []).length;
-      meta.textContent = `${this.formatDate(entry.scannedAt)} · ${n} tech`;
-      main.append(title, meta);
-      const label = `${entry.domain}, ${this.formatDate(entry.scannedAt)}, ${n} technologies. Open this scan.`;
-      main.setAttribute("aria-label", label);
-      if (Store.viewingHistoryId === entry.id) {
-        main.classList.add("is-viewing");
-        main.setAttribute("aria-current", "true");
-      }
-      main.addEventListener("click", () => this.open(entry.id));
-
-      li.appendChild(main);
-      list.appendChild(li);
-    }
-    this.syncBanner();
   }
 };
 
@@ -1634,7 +1204,6 @@ const Actions = {
     const scanId = ++this._scanSeq;
     const isCurrent = () => scanId === this._scanSeq;
     Detail.closeSilent();
-    Store.viewingHistoryId = null;
     Search.clear();
     CategoryFilters.reset();
     Store.notice = "";
@@ -1647,22 +1216,7 @@ const Actions = {
       Store.technologies = technologies;
       Store.notice = "";
       Status.set("done");
-      console.log(`[WebLens] Scan done: ${technologies.length} technologies.`);
-      // Persist successful scans only — fire-and-forget, never blocks UI.
-      try {
-        const domainEl = Elements.get("domainName");
-        const titleEl = Elements.get("pageTitle");
-        History.save(
-          History.snapshot(
-            domainEl ? domainEl.textContent.trim() : "unknown site",
-            domainEl ? domainEl.title || "" : "",
-            titleEl ? titleEl.textContent.trim() : "",
-            technologies
-          )
-        );
-      } catch (histErr) {
-        console.warn("[WebLens] History save failed:", histErr);
-      }
+      console.log(`[WebLens] Scan done: ${technologies.length} tools.`);
     } catch (err) {
       if (!isCurrent()) return; // stale failure must not overwrite a newer scan
       Store.technologies = [];
@@ -1695,10 +1249,8 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 const Boot = {
-  _autoScanned: false,
-
   async boot() {
-    // Settings first so theme + confidence apply before first paint.
+    // Settings first so theme applies before first paint.
     try {
       await Settings.load();
     } catch (err) {
@@ -1712,34 +1264,17 @@ const Boot = {
     Detail.init();
     Export.init();
     Settings.init();
-    let tab = null;
     try {
-      tab = await Domain.resolve();
+      await Domain.resolve();
     } catch (err) {
       console.warn("[WebLens] Site resolve failed:", err);
-    }
-    try {
-      await History.init();
-    } catch (err) {
-      console.warn("[WebLens] History init failed:", err);
     }
 
     const btn = Elements.get("scanBtn");
     if (btn) btn.addEventListener("click", () => Actions.onScanRequested());
-
-    // Optional single auto-scan on popup open (off by default).
-    try {
-      if (
-        !this._autoScanned &&
-        Settings.get("autoScan") &&
-        Store.status === "idle" &&
-        Scanner.isScannable(tab?.url)
-      ) {
-        this._autoScanned = true;
-        Actions.onScanRequested();
-      }
-    } catch (err) {
-      console.warn("[WebLens] Auto-scan failed:", err);
-    }
+    const rescan = Elements.get("rescanBtn");
+    if (rescan) rescan.addEventListener("click", () => Actions.onScanRequested());
+    const retry = Elements.get("emptyRetryBtn");
+    if (retry) retry.addEventListener("click", () => Actions.onScanRequested());
   }
 };
